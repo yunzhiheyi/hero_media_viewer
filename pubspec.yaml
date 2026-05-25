@@ -1,0 +1,34 @@
+name: hero_media_viewer
+description: "A Flutter module for hero-style image and video preview with overlay animation."
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Image zoom viewer
+  photo_view: ^0.15.0
+  
+  # Video player
+  video_player: ^2.9.3
+  
+  # Cached network images
+  cached_network_image: ^3.4.1
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  module:
+    androidX: true
+    androidPackage: com.brighton.hero_media_viewer
+    iosBundleIdentifier: com.brighton.heroMediaViewer

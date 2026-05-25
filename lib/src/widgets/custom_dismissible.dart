@@ -1,0 +1,164 @@
+import 'package:flutter/material.dart';
+
+class CustomDismissible extends StatefulWidget {
+  const CustomDismissible({
+    super.key,
+    required this.child,
+    this.onDismissed,
+    this.onDismissDragStart,
+    this.onDismissDragCancel,
+    this.onDragProgress,
+    this.dismissThreshold = 0.2,
+    this.enabled = true,
+    this.stopDrag = false,
+  });
+
+  final Widget child;
+  final double dismissThreshold;
+  final VoidCallback? onDismissed;
+  final VoidCallback? onDismissDragStart;
+  final VoidCallback? onDismissDragCancel;
+  final void Function(double progress)? onDragProgress;
+  final bool enabled;
+  final bool stopDrag;
+
+  @override
+  State<CustomDismissible> createState() => _CustomDismissibleState();
+}
+
+class _CustomDismissibleState extends State<CustomDismissible>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animateController;
+  late Animation<Offset> _moveAnimation;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _opacityAnimation;
+
+  bool _dragUnderway = false;
+  Offset _dragOffset = Offset.zero;
+  bool get _isActive => _dragUnderway || _animateController.isAnimating;
+
+  @override
+  void initState() {
+    super.initState();
+    _animateController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+
+    _updateMoveAnimation();
+  }
+
+  @override
+  void dispose() {
+    _animateController.dispose();
+    super.dispose();
+  }
+
+  void _updateMoveAnimation() {
+    final double endY = (_dragOffset.dy).sign;
+    final double endX =
+        (_dragOffset.dx).sign *
+        (_dragOffset.dx.abs() / (_dragOffset.dy.abs() + 0.01));
+
+    _moveAnimation = _animateController.drive(
+      Tween<Offset>(begin: Offset.zero, end: Offset(endX, endY)),
+    );
+
+    _scaleAnimation = _animateController.drive(
+      Tween<double>(begin: 1, end: 0),
+    );
+
+    _opacityAnimation = _animateController.drive(
+      Tween<double>(begin: 1, end: 0),
+    );
+  }
+
+  void _handleDragStart(DragStartDetails details) {
+    _dragUnderway = true;
+    widget.onDismissDragStart?.call();
+    if (_animateController.isAnimating) {
+      _animateController.stop();
+    } else {
+      _dragOffset = Offset.zero;
+      _animateController.value = 0.0;
+    }
+    setState(_updateMoveAnimation);
+  }
+
+  void _handleDragEnd(DragEndDetails details) {
+    if (!_isActive || _animateController.isAnimating) {
+      return;
+    }
+    resetDrag();
+  }
+
+  void resetDrag() {
+    _dragUnderway = false;
+
+    if (_animateController.isCompleted) {
+      return;
+    }
+    if (!_animateController.isDismissed) {
+      if (_animateController.value > widget.dismissThreshold) {
+        widget.onDismissed?.call();
+      } else {
+        widget.onDragProgress?.call(0);
+        widget.onDismissDragCancel?.call();
+        _animateController.reverse();
+      }
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant CustomDismissible oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.stopDrag != widget.stopDrag && !widget.stopDrag) {
+      WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
+        resetDrag();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget content = AnimatedBuilder(
+      animation: _animateController,
+      builder: (context, child) {
+        return SlideTransition(
+            position: _moveAnimation,
+            child: ScaleTransition(scale: _scaleAnimation, child: widget.child),
+          );
+      },
+    );
+
+    return Listener(
+      onPointerMove: widget.enabled && !widget.stopDrag ? _onPointerMove : null,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onVerticalDragStart:
+            widget.enabled && !widget.stopDrag ? _handleDragStart : null,
+        onVerticalDragEnd:
+            widget.enabled && !widget.stopDrag ? _handleDragEnd : null,
+        child: content,
+      ),
+    );
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (_dragUnderway) {
+      Offset delta = event.delta;
+      if (!_isActive || _animateController.isAnimating) {
+        return;
+      }
+      _dragOffset += delta;
+
+      setState(_updateMoveAnimation);
+
+      if (!_animateController.isAnimating) {
+        final progress = _dragOffset.dy.abs() / context.size!.height;
+        _animateController.value = progress.clamp(0.0, 1.0);
+        widget.onDragProgress?.call(_animateController.value);
+      }
+    }
+  }
+}
