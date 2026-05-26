@@ -1,52 +1,151 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'hero_dialog_route.dart';
+import 'hero_overlay.dart';
 import 'interactive_gallery_viewer.dart';
 import '../core/media_source.dart';
 
-void showImageGallery({
+void showImageGalleryOverlay({
   required BuildContext context,
   required List<dynamic> imageSources,
-  required List<String> heroTags,
+  required Rect startRect,
   int initialIndex = 0,
   bool showIndicator = true,
+  Map<int, Rect>? itemRects,
   void Function(int index)? onPageChanged,
   VoidCallback? onClose,
+  double? aspectRatio,
+  bool fullScreen = true,
+  HeroOverlayController? controller,
+  BoxFit thumbnailFit = BoxFit.cover,
+  Alignment thumbnailAlignment = Alignment.center,
 }) {
+  _validateImageSources(imageSources, initialIndex);
+
   final imageProviders =
       imageSources.map((source) => MediaSource.from(source)).toList();
+  final currentIndex = ValueNotifier<int>(initialIndex);
 
-  Navigator.of(context).push(
-    HeroDialogRoute<void>(
-      builder:
-          (BuildContext context) => InteractiveGalleryViewer(
-            sources: imageProviders,
-            initIndex: initialIndex,
-            enableIndicator: showIndicator,
-            onPageChanged: onPageChanged,
-            itemBuilder: (BuildContext context, int index, bool isFocus) {
-              return _HeroImageContent(
-                imageProvider: imageProviders[index],
-                heroTag: heroTags[index],
-              );
-            },
-          ),
-    ),
+  void open(double resolvedAspectRatio) {
+    showHeroOverlay(
+      context: context,
+      startRect: startRect,
+      aspectRatio: resolvedAspectRatio,
+      fullScreen: fullScreen,
+      itemRects: itemRects,
+      initialIndex: initialIndex,
+      currentIndexListenable: currentIndex,
+      controller: controller,
+      onClose: onClose,
+      foregroundBuilder:
+          showIndicator && imageProviders.length > 1
+              ? (context, index) => HeroOverlayPageIndicator(
+                count: imageProviders.length,
+                index: index,
+              )
+              : null,
+      closeBuilder: (context, index, progress) {
+        return Image(
+          image: imageProviders[index],
+          fit: thumbnailFit,
+          alignment: thumbnailAlignment,
+        );
+      },
+      dragBuilder: (
+        BuildContext context,
+        HeroOverlayDragHandlers dragHandlers,
+      ) {
+        return InteractiveGalleryViewer(
+          sources: imageProviders,
+          initIndex: initialIndex,
+          enableIndicator: false,
+          showBackground: false,
+          showAppBar: false,
+          tapToDismiss: false,
+          dismissEnabled: false,
+          externalVerticalDragStart: dragHandlers.onStart,
+          externalVerticalDragUpdate: dragHandlers.onUpdate,
+          externalVerticalDragEnd: dragHandlers.onEnd,
+          onPageChanged: (index) {
+            currentIndex.value = index;
+            onPageChanged?.call(index);
+          },
+          itemBuilder: (BuildContext context, int index, bool isFocus) {
+            return Center(
+              child: Image(image: imageProviders[index], fit: BoxFit.contain),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  if (aspectRatio != null) {
+    open(aspectRatio);
+    return;
+  }
+
+  unawaited(
+    _resolveImageAspectRatio(imageProviders[initialIndex]).then((
+      resolvedAspectRatio,
+    ) {
+      if (!context.mounted) return;
+      open(resolvedAspectRatio ?? _rectAspectRatio(startRect));
+    }),
   );
 }
 
-class _HeroImageContent extends StatelessWidget {
-  final ImageProvider imageProvider;
-  final String heroTag;
+Future<double?> _resolveImageAspectRatio(ImageProvider imageProvider) {
+  final completer = Completer<double?>();
+  final stream = imageProvider.resolve(ImageConfiguration.empty);
+  late ImageStreamListener listener;
 
-  const _HeroImageContent({required this.imageProvider, required this.heroTag});
+  listener = ImageStreamListener(
+    (info, _) {
+      final width = info.image.width;
+      final height = info.image.height;
+      stream.removeListener(listener);
+      completer.complete(height == 0 ? null : width / height);
+    },
+    onError: (error, stackTrace) {
+      stream.removeListener(listener);
+      completer.complete(null);
+    },
+  );
 
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Hero(
-        tag: heroTag,
-        child: Image(image: imageProvider, fit: BoxFit.contain),
-      ),
+  stream.addListener(listener);
+
+  return completer.future.timeout(
+    const Duration(milliseconds: 250),
+    onTimeout: () {
+      stream.removeListener(listener);
+      return null;
+    },
+  );
+}
+
+double _rectAspectRatio(Rect rect) {
+  if (rect.height <= 0) {
+    return 1.0;
+  }
+  return rect.width / rect.height;
+}
+
+void _validateImageSources(List<dynamic> imageSources, int initialIndex) {
+  if (imageSources.isEmpty) {
+    throw ArgumentError.value(
+      imageSources,
+      'imageSources',
+      'imageSources must not be empty.',
+    );
+  }
+
+  if (initialIndex < 0 || initialIndex >= imageSources.length) {
+    throw RangeError.range(
+      initialIndex,
+      0,
+      imageSources.length - 1,
+      'initialIndex',
     );
   }
 }
