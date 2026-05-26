@@ -15,6 +15,7 @@ class InteractiveViewerBoundary extends StatefulWidget {
     this.onNoBoundaryHit,
     this.maxScale = 3.5,
     this.minScale = 0.6,
+    this.panEnabled = true,
   });
 
   final Widget child;
@@ -27,6 +28,7 @@ class InteractiveViewerBoundary extends StatefulWidget {
   final VoidCallback? onNoBoundaryHit;
   final double maxScale;
   final double minScale;
+  final bool panEnabled;
 
   @override
   State<InteractiveViewerBoundary> createState() =>
@@ -36,23 +38,26 @@ class InteractiveViewerBoundary extends StatefulWidget {
 class InteractiveViewerBoundaryState extends State<InteractiveViewerBoundary> {
   late TransformationController _controller;
   double? _scale;
+  double? _effectiveBoundaryWidth;
 
   @override
   void initState() {
     super.initState();
     _controller = widget.controller ?? TransformationController();
-    _controller.addListener(() {
-      final currentScale = _controller.value.getMaxScaleOnAxis();
-      if (currentScale < widget.minScale) {
-        _controller.value = Matrix4.identity()..scale(widget.minScale);
-      } else if (currentScale > widget.maxScale) {
-        _controller.value = Matrix4.identity()..scale(widget.maxScale);
-      }
-    });
+    _controller.addListener(_emitScaleChange);
+  }
+
+  void _emitScaleChange() {
+    final currentScale = _controller.value.getMaxScaleOnAxis();
+    if (_scale != currentScale) {
+      _scale = currentScale;
+      widget.onScaleChanged?.call(currentScale);
+    }
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_emitScaleChange);
     if (widget.controller == null) {
       _controller.dispose();
     }
@@ -61,20 +66,24 @@ class InteractiveViewerBoundaryState extends State<InteractiveViewerBoundary> {
 
   void _updateBoundaryDetection(ScaleEndDetails scaleEndDetails) {
     final double scale = _controller.value.getMaxScaleOnAxis();
+    _emitScaleChange();
 
-    if (_scale != scale) {
-      _scale = scale;
-      widget.onScaleChanged?.call(scale);
+    if (scale <= widget.minScale + 0.01) {
+      widget.onLeftBoundaryHit?.call();
+      widget.onRightBoundaryHit?.call();
+      return;
     }
 
-    final double xOffset = _controller.value.row0[3];
-    final double boundaryWidth = widget.boundaryWidth;
-    final double boundaryEnd = boundaryWidth * scale;
-    final double xPos = boundaryEnd + xOffset;
+    final double xOffset = _controller.value.getTranslation().x;
+    final double boundaryWidth =
+        _effectiveBoundaryWidth ?? widget.boundaryWidth;
+    final double scaledWidth = boundaryWidth * scale;
+    final double minOffset = boundaryWidth - scaledWidth;
+    const double epsilon = 2.0;
 
-    if (boundaryEnd.round() == xPos.round()) {
+    if (xOffset >= -epsilon) {
       widget.onLeftBoundaryHit?.call();
-    } else if (boundaryWidth.round() == xPos.round()) {
+    } else if (xOffset <= minOffset + epsilon) {
       widget.onRightBoundaryHit?.call();
     } else {
       widget.onNoBoundaryHit?.call();
@@ -83,18 +92,30 @@ class InteractiveViewerBoundaryState extends State<InteractiveViewerBoundary> {
 
   @override
   Widget build(BuildContext context) {
-    return InteractiveViewer(
-      maxScale: widget.maxScale,
-      minScale: widget.minScale,
-      constrained: false,
-      transformationController: _controller,
-      onInteractionEnd: (details) => _updateBoundaryDetection(details),
-      scaleEnabled: widget.scaleEnabled,
-      child: SizedBox(
-        width: MediaQuery.of(context).size.width,
-        height: MediaQuery.of(context).size.height,
-        child: widget.child,
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final screenSize = MediaQuery.of(context).size;
+        final width =
+            constraints.hasBoundedWidth
+                ? constraints.maxWidth
+                : screenSize.width;
+        final height =
+            constraints.hasBoundedHeight
+                ? constraints.maxHeight
+                : screenSize.height;
+        _effectiveBoundaryWidth = width;
+
+        return InteractiveViewer(
+          maxScale: widget.maxScale,
+          minScale: widget.minScale,
+          constrained: false,
+          transformationController: _controller,
+          onInteractionEnd: (details) => _updateBoundaryDetection(details),
+          scaleEnabled: widget.scaleEnabled,
+          panEnabled: widget.panEnabled,
+          child: SizedBox(width: width, height: height, child: widget.child),
+        );
+      },
     );
   }
 }

@@ -13,10 +13,18 @@ class InteractiveGalleryViewer<T> extends StatefulWidget {
     required this.itemBuilder,
     this.appBar,
     this.maxScale = 3.5,
-    this.minScale = 0.6,
+    this.minScale = 1.0,
     this.onPageChanged,
+    this.onCloseRequested,
     this.isSingle = false,
     this.enableIndicator = false,
+    this.showBackground = true,
+    this.showAppBar = true,
+    this.tapToDismiss = true,
+    this.dismissEnabled = true,
+    this.externalVerticalDragStart,
+    this.externalVerticalDragUpdate,
+    this.externalVerticalDragEnd,
     this.onDismissDragStart,
     this.onDismissDragCancel,
   });
@@ -30,8 +38,16 @@ class InteractiveGalleryViewer<T> extends StatefulWidget {
   final double maxScale;
   final double minScale;
   final ValueChanged<int>? onPageChanged;
+  final VoidCallback? onCloseRequested;
   final VoidCallback? onDismissDragStart;
   final VoidCallback? onDismissDragCancel;
+  final bool showBackground;
+  final bool showAppBar;
+  final bool tapToDismiss;
+  final bool dismissEnabled;
+  final GestureDragStartCallback? externalVerticalDragStart;
+  final GestureDragUpdateCallback? externalVerticalDragUpdate;
+  final GestureDragEndCallback? externalVerticalDragEnd;
 
   @override
   State<InteractiveGalleryViewer> createState() =>
@@ -52,6 +68,12 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
   bool isDismissDrag = false;
   int currentTouchPointNum = 0;
   double _dragProgress = 0;
+  double _currentScale = 1.0;
+
+  bool get _hasExternalVerticalDrag =>
+      widget.externalVerticalDragStart != null &&
+      widget.externalVerticalDragUpdate != null &&
+      widget.externalVerticalDragEnd != null;
 
   @override
   void initState() {
@@ -90,64 +112,57 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
     super.dispose();
   }
 
+  bool _isAtRestScale(double scale) {
+    return scale <= 1.01;
+  }
+
+  void _setGestureMode({
+    required bool enablePageView,
+    required bool enableDismiss,
+  }) {
+    if (_enablePageView == enablePageView && _enableDismiss == enableDismiss) {
+      return;
+    }
+
+    setState(() {
+      _enablePageView = enablePageView;
+      _enableDismiss = enableDismiss;
+    });
+  }
+
   void _onScaleChanged(double scale) {
-    final bool initialScale = scale <= widget.minScale;
-    if (initialScale) {
-      if (!_enableDismiss) {
-        setState(() {
-          _enableDismiss = true;
-        });
-      }
-
-      if (!_enablePageView) {
-        setState(() {
-          _enablePageView = true;
-        });
-      }
+    _currentScale = scale;
+    if (_isAtRestScale(scale)) {
+      _setGestureMode(enablePageView: true, enableDismiss: true);
     } else {
-      if (_enableDismiss) {
-        setState(() {
-          _enableDismiss = false;
-        });
-      }
-
-      if (_enablePageView) {
-        setState(() {
-          _enablePageView = false;
-        });
-      }
-      if (scale == 1.0) {
-        setState(() {
-          _enableDismiss = true;
-        });
-        return;
-      }
+      _setGestureMode(enablePageView: false, enableDismiss: false);
     }
   }
 
   void _onLeftBoundaryHit() {
-    if (_pageController != null &&
-        _pageController!.hasClients &&
-        !_enablePageView &&
-        _pageController!.page != null &&
-        _pageController!.page!.floor() > 0 &&
-        !widget.isSingle) {
-      setState(() {
-        _enablePageView = true;
-      });
-    }
+    _enablePageViewAtZoomBoundary(isLeftBoundary: true);
   }
 
   void _onRightBoundaryHit() {
+    _enablePageViewAtZoomBoundary(isLeftBoundary: false);
+  }
+
+  void _enablePageViewAtZoomBoundary({required bool isLeftBoundary}) {
     if (_pageController != null &&
         _pageController!.hasClients &&
         !_enablePageView &&
         _pageController!.page != null &&
-        _pageController!.page!.floor() < widget.sources.length - 1 &&
         !widget.isSingle) {
-      setState(() {
-        _enablePageView = true;
-      });
+      final page = _pageController!.page!.round();
+      final canMoveToPrevious = page > 0;
+      final canMoveToNext = page < widget.sources.length - 1;
+
+      if ((isLeftBoundary && canMoveToPrevious) ||
+          (!isLeftBoundary && canMoveToNext)) {
+        setState(() {
+          _enablePageView = true;
+        });
+      }
     }
   }
 
@@ -162,16 +177,13 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
   void _onPageChanged(int page) {
     setState(() {
       currentIndex = page;
+      _enablePageView = true;
+      _enableDismiss = true;
     });
     widget.onPageChanged?.call(page);
     if (_transformationController!.value != Matrix4.identity()) {
-      _animation = Matrix4Tween(
-        begin: _transformationController!.value,
-        end: Matrix4.identity(),
-      ).animate(
-        CurveTween(curve: Curves.easeOut).animate(_animationController),
-      );
-      _animationController.forward(from: 0);
+      _transformationController!.value = Matrix4.identity();
+      _currentScale = 1.0;
     }
   }
 
@@ -189,23 +201,32 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
     });
 
     if (mounted) {
-      Navigator.of(context).pop();
+      if (widget.onCloseRequested != null) {
+        widget.onCloseRequested!.call();
+      } else {
+        Navigator.of(context).pop();
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final bgOpacity = (1.0 - _dragProgress).clamp(0.0, 1.0);
+    final reserveSingleFingerDrag =
+        _hasExternalVerticalDrag &&
+        _isAtRestScale(_currentScale) &&
+        currentTouchPointNum <= 1;
 
     return Material(
       type: MaterialType.transparency,
       child: Stack(
         children: [
-          Container(
-            color: Colors.black.withValues(alpha: bgOpacity),
-            width: double.infinity,
-            height: double.infinity,
-          ),
+          if (widget.showBackground)
+            Container(
+              color: Colors.black.withValues(alpha: bgOpacity),
+              width: double.infinity,
+              height: double.infinity,
+            ),
           InteractiveViewerBoundary(
             controller: _transformationController,
             boundaryWidth: MediaQuery.of(context).size.width,
@@ -215,7 +236,9 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
             onNoBoundaryHit: _onNoBoundaryHit,
             maxScale: widget.maxScale,
             minScale: widget.minScale,
-            scaleEnabled: true,
+            scaleEnabled: !reserveSingleFingerDrag,
+            panEnabled:
+                !_hasExternalVerticalDrag || !_isAtRestScale(_currentScale),
             child: Listener(
               onPointerDown: (event) {
                 currentTouchPointNum++;
@@ -226,8 +249,18 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
                 }
               },
               onPointerUp: (event) {
-                currentTouchPointNum--;
-                if (currentTouchPointNum <= 1) {
+                currentTouchPointNum =
+                    (currentTouchPointNum - 1).clamp(0, 10).toInt();
+                if (currentTouchPointNum <= 1 &&
+                    _isAtRestScale(_currentScale)) {
+                  setState(() => _enablePageView = true);
+                }
+              },
+              onPointerCancel: (event) {
+                currentTouchPointNum =
+                    (currentTouchPointNum - 1).clamp(0, 10).toInt();
+                if (currentTouchPointNum == 0 &&
+                    _isAtRestScale(_currentScale)) {
                   setState(() => _enablePageView = true);
                 }
               },
@@ -250,7 +283,7 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
                   });
                 },
                 onDragProgress: _onDragProgress,
-                enabled: _enableDismiss,
+                enabled: widget.dismissEnabled && _enableDismiss,
                 child:
                     widget.sources.length == 1 && widget.isSingle
                         ? _buildItem(context, 0, true)
@@ -274,12 +307,22 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
               ),
             ),
           ),
-          if (!isDismissDrag)
+          if (widget.showAppBar && !isDismissDrag)
             Positioned(
               left: 0,
               top: 0,
               right: 0,
               child: widget.appBar ?? _buildAppBar(),
+            ),
+          if (widget.enableIndicator &&
+              !widget.isSingle &&
+              widget.sources.length > 1 &&
+              !isDismissDrag)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: MediaQuery.of(context).padding.bottom + 18,
+              child: _buildIndicator(),
             ),
         ],
       ),
@@ -288,11 +331,44 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
 
   Widget _buildItem(BuildContext context, int index, bool isFocus) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onDoubleTapDown: (TapDownDetails details) {
         _doubleTapLocalPosition = details.localPosition;
       },
-      onTap: _closeWithAnimation,
+      onDoubleTap: onDoubleTap,
+      onTap: widget.tapToDismiss ? _closeWithAnimation : null,
+      onVerticalDragStart:
+          _hasExternalVerticalDrag && _isAtRestScale(_currentScale)
+              ? widget.externalVerticalDragStart
+              : null,
+      onVerticalDragUpdate:
+          _hasExternalVerticalDrag && _isAtRestScale(_currentScale)
+              ? widget.externalVerticalDragUpdate
+              : null,
+      onVerticalDragEnd:
+          _hasExternalVerticalDrag && _isAtRestScale(_currentScale)
+              ? widget.externalVerticalDragEnd
+              : null,
       child: widget.itemBuilder(context, index, isFocus),
+    );
+  }
+
+  Widget _buildIndicator() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(widget.sources.length, (index) {
+        final active = index == currentIndex;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          width: active ? 16 : 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: active ? Colors.white : Colors.white54,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        );
+      }),
     );
   }
 
