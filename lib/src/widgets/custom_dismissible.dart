@@ -55,18 +55,17 @@ class _CustomDismissibleState extends State<CustomDismissible>
   }
 
   void _updateMoveAnimation() {
-    final double endY = (_dragOffset.dy).sign;
-    final double endX =
-        (_dragOffset.dx).sign *
-        (_dragOffset.dx.abs() / (_dragOffset.dy.abs() + 0.01));
+    final double endY = _dragOffset.dy <= 0 ? 0 : 1;
+    final double endX = (_dragOffset.dx / (_dragOffset.dy.abs() + 0.01)).clamp(
+      -0.8,
+      0.8,
+    );
 
     _moveAnimation = _animateController.drive(
       Tween<Offset>(begin: Offset.zero, end: Offset(endX, endY)),
     );
 
-    _scaleAnimation = _animateController.drive(
-      Tween<double>(begin: 1, end: 0),
-    );
+    _scaleAnimation = _animateController.drive(Tween<double>(begin: 1, end: 0));
 
     _opacityAnimation = _animateController.drive(
       Tween<double>(begin: 1, end: 0),
@@ -124,10 +123,13 @@ class _CustomDismissibleState extends State<CustomDismissible>
     final Widget content = AnimatedBuilder(
       animation: _animateController,
       builder: (context, child) {
-        return SlideTransition(
+        return FadeTransition(
+          opacity: _opacityAnimation,
+          child: SlideTransition(
             position: _moveAnimation,
             child: ScaleTransition(scale: _scaleAnimation, child: widget.child),
-          );
+          ),
+        );
       },
     );
 
@@ -155,7 +157,8 @@ class _CustomDismissibleState extends State<CustomDismissible>
       setState(_updateMoveAnimation);
 
       if (!_animateController.isAnimating) {
-        final progress = _dragOffset.dy.abs() / context.size!.height;
+        final progress =
+            _dragOffset.dy <= 0 ? 0.0 : _dragOffset.dy / context.size!.height;
         _animateController.value = progress.clamp(0.0, 1.0);
         widget.onDragProgress?.call(_animateController.value);
       }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/media_source.dart';
+import 'hero_overlay.dart';
 import 'video_hero_viewer.dart';
 import 'image_hero_viewer.dart';
 
@@ -12,9 +13,6 @@ class VideoHeroThumbnailToZoom extends StatelessWidget {
 
   /// 缩略图资源
   final dynamic thumbnail;
-
-  /// Hero 动画标签，必须唯一
-  final String heroTag;
 
   /// 容器宽度
   final double? width;
@@ -37,11 +35,13 @@ class VideoHeroThumbnailToZoom extends StatelessWidget {
   /// 点击回调
   final VoidCallback? onTap;
 
+  /// Overlay 关闭到缩略图时使用的图片填充方式
+  final BoxFit thumbnailFit;
+
   const VideoHeroThumbnailToZoom({
     super.key,
     required this.videoSource,
     required this.thumbnail,
-    required this.heroTag,
     this.width,
     this.height,
     this.borderRadius,
@@ -49,44 +49,46 @@ class VideoHeroThumbnailToZoom extends StatelessWidget {
     this.playIconColor,
     this.overlayOpacity = 0.3,
     this.onTap,
+    this.thumbnailFit = BoxFit.cover,
   });
 
   @override
   Widget build(BuildContext context) {
+    final thumbnailKey = GlobalKey();
+
     return GestureDetector(
       onTap: () {
         onTap?.call();
-        showVideoHero(
+        showVideoHeroOverlay(
           context: context,
           videoSource: videoSource,
-          heroTag: heroTag,
+          startRect: getWidgetGlobalRect(thumbnailKey),
           thumbnail: thumbnail,
+          thumbnailFit: thumbnailFit,
         );
       },
-      child: Hero(
-        tag: heroTag,
-        child: Container(
-          width: width,
-          height: height,
-          decoration: BoxDecoration(
-            color: Colors.grey[300],
-            borderRadius: borderRadius ?? BorderRadius.circular(8),
-            image: DecorationImage(
-              image: MediaSource.from(thumbnail),
-              fit: BoxFit.cover,
-            ),
+      child: Container(
+        key: thumbnailKey,
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: Colors.grey[300],
+          borderRadius: borderRadius ?? BorderRadius.circular(8),
+          image: DecorationImage(
+            image: MediaSource.from(thumbnail),
+            fit: thumbnailFit,
           ),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: overlayOpacity),
-              borderRadius: borderRadius ?? BorderRadius.circular(8),
-            ),
-            child: Center(
-              child: Icon(
-                Icons.play_circle,
-                color: playIconColor ?? Colors.white,
-                size: playIconSize,
-              ),
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: overlayOpacity),
+            borderRadius: borderRadius ?? BorderRadius.circular(8),
+          ),
+          child: Center(
+            child: Icon(
+              Icons.play_circle,
+              color: playIconColor ?? Colors.white,
+              size: playIconSize,
             ),
           ),
         ),
@@ -102,9 +104,6 @@ class ImageHeroThumbnailToZoom extends StatelessWidget {
   /// 图片资源（支持网络、Asset、文件、内存）
   final dynamic imageSource;
 
-  /// Hero 动画标签，必须唯一
-  final String heroTag;
-
   /// 容器宽度
   final double? width;
 
@@ -117,39 +116,43 @@ class ImageHeroThumbnailToZoom extends StatelessWidget {
   /// 点击回调
   final VoidCallback? onTap;
 
+  /// Overlay 关闭到缩略图时使用的图片填充方式
+  final BoxFit thumbnailFit;
+
   const ImageHeroThumbnailToZoom({
     super.key,
     required this.imageSource,
-    required this.heroTag,
     this.width,
     this.height,
     this.borderRadius,
     this.onTap,
+    this.thumbnailFit = BoxFit.contain,
   });
 
   @override
   Widget build(BuildContext context) {
+    final thumbnailKey = GlobalKey();
+
     return GestureDetector(
       onTap: () {
         onTap?.call();
-        showImageHero(
+        showImageHeroOverlay(
           context: context,
           imageSource: imageSource,
-          heroTag: heroTag,
+          startRect: getWidgetGlobalRect(thumbnailKey),
+          thumbnailFit: thumbnailFit,
         );
       },
-      child: Hero(
-        tag: heroTag,
-        child: Container(
-          width: width,
-          height: height,
-          decoration: BoxDecoration(
-            color: Colors.grey[300],
-            borderRadius: borderRadius ?? BorderRadius.circular(8),
-            image: DecorationImage(
-              image: MediaSource.from(imageSource),
-              fit: BoxFit.contain,
-            ),
+      child: Container(
+        key: thumbnailKey,
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: Colors.grey[300],
+          borderRadius: borderRadius ?? BorderRadius.circular(8),
+          image: DecorationImage(
+            image: MediaSource.from(imageSource),
+            fit: thumbnailFit,
           ),
         ),
       ),
