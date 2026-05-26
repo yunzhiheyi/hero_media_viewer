@@ -1,6 +1,7 @@
-/// Media Item 数据模型
+// Media Item 数据模型
 
 import 'package:flutter/material.dart';
+import '../core/media_source.dart';
 
 /// 媒体类型
 enum MediaType { image, video }
@@ -50,6 +51,22 @@ class MediaItem {
     );
   }
 
+  /// 通过动态图片资源创建图片项
+  factory MediaItem.imageSource({
+    required String id,
+    required dynamic source,
+    dynamic thumbnail,
+    double? aspectRatio,
+  }) {
+    return MediaItem(
+      id: id,
+      type: MediaType.image,
+      imageProvider: MediaSource.from(source),
+      thumbnail: thumbnail == null ? null : MediaSource.from(thumbnail),
+      aspectRatio: aspectRatio,
+    );
+  }
+
   /// 创建视频项
   factory MediaItem.video({
     required String id,
@@ -62,6 +79,22 @@ class MediaItem {
       type: MediaType.video,
       videoPath: videoPath,
       thumbnail: thumbnail,
+      aspectRatio: aspectRatio,
+    );
+  }
+
+  /// 通过动态缩略图资源创建视频项
+  factory MediaItem.videoSource({
+    required String id,
+    required String videoPath,
+    dynamic thumbnail,
+    double? aspectRatio,
+  }) {
+    return MediaItem(
+      id: id,
+      type: MediaType.video,
+      videoPath: videoPath,
+      thumbnail: thumbnail == null ? null : MediaSource.from(thumbnail),
       aspectRatio: aspectRatio,
     );
   }

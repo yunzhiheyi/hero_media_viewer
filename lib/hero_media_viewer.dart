@@ -3,11 +3,12 @@
 /// A Flutter module for hero-style image and video preview with overlay animation.
 ///
 /// Features:
-/// - Single image hero preview with zoom support
-/// - Multiple images gallery with swipe support
-/// - Single video playback with hero animation
-/// - Smooth open/close animations
-/// - Drag to dismiss gesture
+/// - Overlay-based single image preview with zoom support
+/// - Overlay-based image gallery with swipe support
+/// - Overlay-based video playback with hero animation
+/// - Mixed image and video gallery
+/// - Arbitrary page overlay with hero open and drag-to-close animation
+/// - Smooth open/close and drag-to-dismiss animations
 /// - Support for network, local file, asset, and memory resources
 library;
 
