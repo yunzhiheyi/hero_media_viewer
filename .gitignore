@@ -1,0 +1,42 @@
+# Dart/Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+pubspec.lock
+
+# Build output
+build/
+.android/
+.ios/
+.linux/
+.macos/
+.web/
+.windows/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Coverage
+coverage/
+
+# Example – generated iOS files
+example/hero_media_viewer_example/ios/Flutter/Flutter.podspec
+example/hero_media_viewer_example/ios/Flutter/Generated.xcconfig
+example/hero_media_viewer_example/ios/Flutter/flutter_export_environment.sh
+example/hero_media_viewer_example/ios/Flutter/ephemeral/
+example/hero_media_viewer_example/ios/Pods/
+example/hero_media_viewer_example/ios/.symlinks/
+example/hero_media_viewer_example/ios/Runner/GeneratedPluginRegistrant.h
+example/hero_media_viewer_example/ios/Runner/GeneratedPluginRegistrant.m
+
+# Example – generated Android files
+example/hero_media_viewer_example/android/local.properties
+example/hero_media_viewer_example/android/app/src/main/java/io/
+
+# Example – build & plugin deps
+example/hero_media_viewer_example/build/
+example/hero_media_viewer_example/.flutter-plugins
+example/hero_media_viewer_example/.flutter-plugins-dependencies
