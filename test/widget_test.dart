@@ -1,28 +1,41 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
+import 'package:hero_media_viewer/hero_media_viewer.dart';
+import 'package:hero_media_viewer/src/widgets/interactive_gallery_viewer.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-
-
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  test('MediaSource creates image providers from supported sources', () {
+    expect(
+      MediaSource.from('https://example.com/image.jpg'),
+      isA<NetworkImage>(),
+    );
+    expect(MediaSource.from('assets://images/sample.png'), isA<AssetImage>());
+    expect(
+      MediaSource.from(Uint8List.fromList(<int>[1, 2, 3])),
+      isA<MemoryImage>(),
+    );
   });
+
+  testWidgets(
+    'InteractiveGalleryViewer renders multiple pages with indicator',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: InteractiveGalleryViewer<String>(
+            sources: const ['one', 'two'],
+            initIndex: 0,
+            enableIndicator: true,
+            itemBuilder: (context, index, isFocus) {
+              return Center(child: Text('page-$index'));
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('page-0'), findsOneWidget);
+      expect(find.text('1 / 2'), findsOneWidget);
+    },
+  );
 }
