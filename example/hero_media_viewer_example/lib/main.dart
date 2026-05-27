@@ -182,6 +182,23 @@ class _ImageGalleryOverlayDemoState extends State<ImageGalleryOverlayDemo> {
                 initialIndex: index,
                 itemRects: _currentRects(_itemKeys),
                 thumbnailFit: BoxFit.cover,
+                // Builder 演示：在 overlay 顶部右上角叠加一个保存按钮
+                foregroundBuilder: (ctx, idx) {
+                  final top = MediaQuery.viewPaddingOf(ctx).top + 8;
+                  return Positioned(
+                    top: top,
+                    right: 12,
+                    child: _OverlayActionChip(
+                      icon: Icons.download_rounded,
+                      label: '保存',
+                      onTap: () {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(content: Text('演示：保存第 ${idx + 1} 张')),
+                        );
+                      },
+                    ),
+                  );
+                },
               );
             },
           );
@@ -251,6 +268,57 @@ class _MixedMediaOverlayDemoState extends State<MixedMediaOverlayDemo> {
       initialIndex: index,
       itemRects: _currentRects(_itemKeys),
       thumbnailFit: BoxFit.cover,
+      // Builder 演示：自定义视频播放控件（更大的中心按钮 + 提示文字）
+      videoControlsBuilder: (ctx, controller, isPlaying, toggle) {
+        return Center(
+          child: AnimatedOpacity(
+            opacity: isPlaying ? 0.0 : 1.0,
+            duration: const Duration(milliseconds: 200),
+            child: GestureDetector(
+              onTap: toggle,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: const BoxDecoration(
+                      color: Colors.black54,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.play_arrow,
+                      color: Colors.white,
+                      size: 44,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    '自定义控件',
+                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+      // Builder 演示：顶部右上角分享按钮
+      foregroundBuilder: (ctx, idx) {
+        final top = MediaQuery.viewPaddingOf(ctx).top + 8;
+        return Positioned(
+          top: top,
+          right: 12,
+          child: _OverlayActionChip(
+            icon: Icons.ios_share,
+            label: '分享',
+            onTap: () {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                SnackBar(content: Text('演示：分享第 ${idx + 1} 项')),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
@@ -687,6 +755,44 @@ class _VideoTile extends StatelessWidget {
           ),
           child: const Center(
             child: Icon(Icons.play_circle, color: Colors.white, size: 42),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OverlayActionChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _OverlayActionChip({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black54,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: Colors.white, size: 18),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
+            ],
           ),
         ),
       ),
