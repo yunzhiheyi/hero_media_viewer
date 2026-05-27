@@ -75,6 +75,10 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
   double _lastTranslationY = 0;
   bool _externalDragActive = false;
 
+  // rest scale 下，_buildItem 内 GestureDetector 触发的下滑关闭是否已激活；
+  // 用来在 2 指落下时取消（避免 1 指无意中触发的 dismiss drag 把 overlay 拉走）。
+  bool _externalDismissDragActive = false;
+
   // 防止 mid-gesture rebuild 引起 InteractiveViewer 焦点漂移：
   // 手指还在屏幕上时，不要因 scale 变化触发 _setGestureMode 重建。
   bool get _gestureInProgress => currentTouchPointNum > 0;
@@ -290,10 +294,6 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
   @override
   Widget build(BuildContext context) {
     final bgOpacity = (1.0 - _dragProgress).clamp(0.0, 1.0);
-    final reserveSingleFingerDrag =
-        _hasExternalVerticalDrag &&
-        _isAtRestScale(_currentScale) &&
-        currentTouchPointNum <= 1;
 
     return Material(
       type: MaterialType.transparency,
@@ -314,7 +314,13 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
             onNoBoundaryHit: _onNoBoundaryHit,
             maxScale: widget.maxScale,
             minScale: widget.minScale,
-            scaleEnabled: !reserveSingleFingerDrag,
+            // scaleEnabled 必须始终为 true：mid-gesture 从 false → true 切换会让
+            // InteractiveViewer 的 ScaleGestureRecognizer 在 2 指落下时才开始追踪，
+            // 错过 1 指的初始位置，导致 pinch 焦点跳动。
+            scaleEnabled: true,
+            // panEnabled 仅基于 scale，不基于 currentTouchPointNum，确保 pinch 过程中
+            // (currentTouchPointNum 1→2) 不会触发 mid-gesture rebuild。
+            // 至于 1 指 rest 下的下滑关闭，由下面 _buildItem 的 GestureDetector 处理。
             panEnabled:
                 !_hasExternalVerticalDrag || !_isAtRestScale(_currentScale),
             child: Listener(
@@ -325,11 +331,24 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
                   _lastTranslationY =
                       _transformationController!.value.getTranslation().y;
                 } else if (currentTouchPointNum > 1) {
-                  // 第 2 指落下：取消任何进行中的外部拖动（pinch 优先）
+                  // 第 2 指落下：取消所有 1 指阶段已经吃下的拖动，
+                  // 让 ScaleGestureRecognizer 干净地接管 pinch。
+                  // - _externalDragActive：zoom 状态过拖产生的外部 drag。
+                  // - _externalDismissDragActive：rest 状态由 _buildItem 的
+                  //   VerticalDragGestureRecognizer 误触发的 dismiss drag；
+                  //   通过 externalVerticalDragEnd(Velocity.zero) 让 Hero
+                  //   overlay 的 _handleDragEnd 走 _resetDrag 路径，overlay 回位。
                   _cancelExternalDragIfAny();
-                  setState(() {
-                    _enablePageView = false;
-                  });
+                  if (_externalDismissDragActive) {
+                    _externalDismissDragActive = false;
+                    widget.externalVerticalDragEnd?.call(
+                      DragEndDetails(velocity: Velocity.zero),
+                    );
+                  }
+                  // 不再 setState 关闭 _enablePageView：mid-gesture 重建会导致
+                  // InteractiveViewer.ScaleGestureRecognizer 错过 1 指初始位置，
+                  // pinch 焦点出现漂移。PageView 在 2 指 pinch 时会自然让位给
+                  // ScaleRecognizer（多指比单指 horizontal drag 更具体）。
                 }
               },
               onPointerMove: (event) {
@@ -432,6 +451,9 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
   }
 
   Widget _buildItem(BuildContext context, int index, bool isFocus) {
+    final canDismissDrag =
+        _hasExternalVerticalDrag && _isAtRestScale(_currentScale);
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onDoubleTapDown: (TapDownDetails details) {
@@ -439,18 +461,29 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
       },
       onDoubleTap: onDoubleTap,
       onTap: widget.tapToDismiss ? _closeWithAnimation : null,
-      onVerticalDragStart:
-          _hasExternalVerticalDrag && _isAtRestScale(_currentScale)
-              ? widget.externalVerticalDragStart
-              : null,
-      onVerticalDragUpdate:
-          _hasExternalVerticalDrag && _isAtRestScale(_currentScale)
-              ? widget.externalVerticalDragUpdate
-              : null,
-      onVerticalDragEnd:
-          _hasExternalVerticalDrag && _isAtRestScale(_currentScale)
-              ? widget.externalVerticalDragEnd
-              : null,
+      onVerticalDragStart: canDismissDrag
+          ? (details) {
+              // 如果 start 触发时已经是多指（少数情况下两指几乎同时落下，
+              // kTouchSlop 在两指都到位后才被突破），直接放弃，不让 pinch
+              // 被 dismiss drag 抢走。
+              if (currentTouchPointNum > 1) return;
+              _externalDismissDragActive = true;
+              widget.externalVerticalDragStart?.call(details);
+            }
+          : null,
+      onVerticalDragUpdate: canDismissDrag
+          ? (details) {
+              if (!_externalDismissDragActive) return;
+              widget.externalVerticalDragUpdate?.call(details);
+            }
+          : null,
+      onVerticalDragEnd: canDismissDrag
+          ? (details) {
+              if (!_externalDismissDragActive) return;
+              _externalDismissDragActive = false;
+              widget.externalVerticalDragEnd?.call(details);
+            }
+          : null,
       child: widget.itemBuilder(context, index, isFocus),
     );
   }
