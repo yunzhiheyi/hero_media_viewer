@@ -19,6 +19,13 @@ void showImageGalleryOverlay({
   HeroOverlayController? controller,
   BoxFit thumbnailFit = BoxFit.cover,
   Alignment thumbnailAlignment = Alignment.center,
+  Widget Function(
+    BuildContext context,
+    ImageProvider imageProvider,
+    int index,
+    bool isFocus,
+  )? imageBuilder,
+  HeroOverlayForegroundBuilder? foregroundBuilder,
 }) {
   _validateImageSources(imageSources, initialIndex);
 
@@ -37,13 +44,11 @@ void showImageGalleryOverlay({
       currentIndexListenable: currentIndex,
       controller: controller,
       onClose: onClose,
-      foregroundBuilder:
-          showIndicator && imageProviders.length > 1
-              ? (context, index) => HeroOverlayPageIndicator(
-                count: imageProviders.length,
-                index: index,
-              )
-              : null,
+      foregroundBuilder: _mergedForeground(
+        showIndicator: showIndicator && imageProviders.length > 1,
+        count: imageProviders.length,
+        userForeground: foregroundBuilder,
+      ),
       closeBuilder: (context, index, progress) {
         return Image(
           image: imageProviders[index],
@@ -71,6 +76,14 @@ void showImageGalleryOverlay({
             onPageChanged?.call(index);
           },
           itemBuilder: (BuildContext context, int index, bool isFocus) {
+            if (imageBuilder != null) {
+              return imageBuilder(
+                context,
+                imageProviders[index],
+                index,
+                isFocus,
+              );
+            }
             return Center(
               child: Image(image: imageProviders[index], fit: BoxFit.contain),
             );
@@ -121,6 +134,25 @@ Future<double?> _resolveImageAspectRatio(ImageProvider imageProvider) {
       stream.removeListener(listener);
       return null;
     },
+  );
+}
+
+HeroOverlayForegroundBuilder? _mergedForeground({
+  required bool showIndicator,
+  required int count,
+  HeroOverlayForegroundBuilder? userForeground,
+}) {
+  if (!showIndicator && userForeground == null) return null;
+  if (!showIndicator) return userForeground;
+  if (userForeground == null) {
+    return (context, index) =>
+        HeroOverlayPageIndicator(count: count, index: index);
+  }
+  return (context, index) => Stack(
+    children: [
+      HeroOverlayPageIndicator(count: count, index: index),
+      userForeground(context, index),
+    ],
   );
 }
 

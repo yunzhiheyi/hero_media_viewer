@@ -19,6 +19,21 @@ void showVideoHeroOverlay({
   HeroOverlayController? controller,
   BoxFit thumbnailFit = BoxFit.cover,
   Alignment thumbnailAlignment = Alignment.center,
+  Widget Function(
+    BuildContext context,
+    String videoSource,
+    ImageProvider? thumbnail,
+    bool isFocus,
+  )? videoBuilder,
+  Widget Function(
+    BuildContext context,
+    VideoPlayerController controller,
+    bool isPlaying,
+    VoidCallback togglePlayback,
+  )? videoControlsBuilder,
+  Widget Function(BuildContext context)? videoLoadingBuilder,
+  Widget Function(BuildContext context)? videoErrorBuilder,
+  HeroOverlayForegroundBuilder? foregroundBuilder,
 }) {
   final thumbnailProvider =
       thumbnail != null ? MediaSource.from(thumbnail) : null;
@@ -31,6 +46,7 @@ void showVideoHeroOverlay({
     controller: controller,
     onClose: onClose,
     tapToClose: false,
+    foregroundBuilder: foregroundBuilder,
     closeBuilder:
         thumbnailProvider != null
             ? (context, index, progress) {
@@ -54,9 +70,15 @@ void showVideoHeroOverlay({
         externalVerticalDragUpdate: dragHandlers.onUpdate,
         externalVerticalDragEnd: dragHandlers.onEnd,
         itemBuilder: (BuildContext context, int index, bool isFocus) {
-          return _VideoPlayerContent(
+          if (videoBuilder != null) {
+            return videoBuilder(context, videoSource, thumbnailProvider, isFocus);
+          }
+          return HeroVideoPlayer(
             videoSource: videoSource,
             thumbnail: thumbnailProvider,
+            controlsBuilder: videoControlsBuilder,
+            loadingBuilder: videoLoadingBuilder,
+            errorBuilder: videoErrorBuilder,
           );
         },
       );
@@ -78,6 +100,28 @@ void showMediaHeroOverlay({
   HeroOverlayController? controller,
   BoxFit thumbnailFit = BoxFit.cover,
   Alignment thumbnailAlignment = Alignment.center,
+  Widget Function(
+    BuildContext context,
+    ImageProvider imageProvider,
+    int index,
+    bool isFocus,
+  )? imageBuilder,
+  Widget Function(
+    BuildContext context,
+    String videoSource,
+    ImageProvider? thumbnail,
+    int index,
+    bool isFocus,
+  )? videoBuilder,
+  Widget Function(
+    BuildContext context,
+    VideoPlayerController controller,
+    bool isPlaying,
+    VoidCallback togglePlayback,
+  )? videoControlsBuilder,
+  Widget Function(BuildContext context)? videoLoadingBuilder,
+  Widget Function(BuildContext context)? videoErrorBuilder,
+  HeroOverlayForegroundBuilder? foregroundBuilder,
 }) {
   if (items.isEmpty) {
     throw ArgumentError.value(items, 'items', 'items must not be empty.');
@@ -103,11 +147,11 @@ void showMediaHeroOverlay({
     controller: controller,
     onClose: onClose,
     tapToClose: false,
-    foregroundBuilder:
-        showIndicator && items.length > 1
-            ? (context, index) =>
-                HeroOverlayPageIndicator(count: items.length, index: index)
-            : null,
+    foregroundBuilder: _mergedForeground(
+      showIndicator: showIndicator && items.length > 1,
+      count: items.length,
+      userForeground: foregroundBuilder,
+    ),
     closeBuilder: (context, index, progress) {
       final item = items[index];
       final imageProvider =
@@ -142,20 +186,57 @@ void showMediaHeroOverlay({
         itemBuilder: (BuildContext context, int index, bool isFocus) {
           final item = items[index];
           return switch (item.type) {
-            MediaType.image => Center(
-              child: Image(
-                image: _requiredImageProvider(item),
-                fit: BoxFit.contain,
-              ),
-            ),
-            MediaType.video => _VideoPlayerContent(
-              videoSource: _requiredVideoPath(item),
-              thumbnail: item.thumbnail,
-            ),
+            MediaType.image => imageBuilder != null
+                ? imageBuilder(
+                    context,
+                    _requiredImageProvider(item),
+                    index,
+                    isFocus,
+                  )
+                : Center(
+                    child: Image(
+                      image: _requiredImageProvider(item),
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+            MediaType.video => videoBuilder != null
+                ? videoBuilder(
+                    context,
+                    _requiredVideoPath(item),
+                    item.thumbnail,
+                    index,
+                    isFocus,
+                  )
+                : HeroVideoPlayer(
+                    videoSource: _requiredVideoPath(item),
+                    thumbnail: item.thumbnail,
+                    controlsBuilder: videoControlsBuilder,
+                    loadingBuilder: videoLoadingBuilder,
+                    errorBuilder: videoErrorBuilder,
+                  ),
           };
         },
       );
     },
+  );
+}
+
+HeroOverlayForegroundBuilder? _mergedForeground({
+  required bool showIndicator,
+  required int count,
+  HeroOverlayForegroundBuilder? userForeground,
+}) {
+  if (!showIndicator && userForeground == null) return null;
+  if (!showIndicator) return userForeground;
+  if (userForeground == null) {
+    return (context, index) =>
+        HeroOverlayPageIndicator(count: count, index: index);
+  }
+  return (context, index) => Stack(
+    children: [
+      HeroOverlayPageIndicator(count: count, index: index),
+      userForeground(context, index),
+    ],
   );
 }
 
@@ -180,17 +261,45 @@ String _requiredVideoPath(MediaItem item) {
   return item.videoPath!;
 }
 
-class _VideoPlayerContent extends StatefulWidget {
+/// 默认的视频播放器组件，可通过 [controlsBuilder] / [loadingBuilder] / [errorBuilder]
+/// 槽位 builder 自定义 UI；整库托管 VideoPlayerController 的初始化、释放和点击播放。
+///
+/// 若想完全替换播放器（例如换成 BetterPlayer），请使用 showXxxOverlay 的 `videoBuilder`
+/// 参数自行返回 widget。
+class HeroVideoPlayer extends StatefulWidget {
   final String videoSource;
   final ImageProvider? thumbnail;
 
-  const _VideoPlayerContent({required this.videoSource, this.thumbnail});
+  /// 自定义控件层（播放/暂停按钮、进度条等）。
+  /// 接收当前 controller、播放状态和切换播放的回调。
+  final Widget Function(
+    BuildContext context,
+    VideoPlayerController controller,
+    bool isPlaying,
+    VoidCallback togglePlayback,
+  )?
+  controlsBuilder;
+
+  /// 自定义加载态 UI。
+  final Widget Function(BuildContext context)? loadingBuilder;
+
+  /// 自定义错误态 UI。
+  final Widget Function(BuildContext context)? errorBuilder;
+
+  const HeroVideoPlayer({
+    super.key,
+    required this.videoSource,
+    this.thumbnail,
+    this.controlsBuilder,
+    this.loadingBuilder,
+    this.errorBuilder,
+  });
 
   @override
-  State<_VideoPlayerContent> createState() => _VideoPlayerContentState();
+  State<HeroVideoPlayer> createState() => _HeroVideoPlayerState();
 }
 
-class _VideoPlayerContentState extends State<_VideoPlayerContent> {
+class _HeroVideoPlayerState extends State<HeroVideoPlayer> {
   VideoPlayerController? _videoController;
   bool _videoReady = false;
   bool _isPlaying = false;
@@ -273,37 +382,47 @@ class _VideoPlayerContentState extends State<_VideoPlayerContent> {
               ),
             ),
           if (!_videoReady && !_hasError)
-            const Center(child: CircularProgressIndicator(color: Colors.white)),
+            widget.loadingBuilder?.call(context) ??
+                const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                ),
           if (_hasError)
-            const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.error_outline, color: Colors.white, size: 48),
-                  SizedBox(height: 8),
-                  Text('视频加载失败', style: TextStyle(color: Colors.white)),
-                ],
-              ),
-            ),
-          if (_videoReady)
-            Center(
-              child: AnimatedOpacity(
-                opacity: _isPlaying ? 0.0 : 1.0,
-                duration: const Duration(milliseconds: 200),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.black45,
-                    borderRadius: BorderRadius.circular(28),
-                  ),
-                  child: const Icon(
-                    Icons.play_arrow,
-                    color: Colors.white,
-                    size: 28,
+            widget.errorBuilder?.call(context) ??
+                const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.error_outline, color: Colors.white, size: 48),
+                      SizedBox(height: 8),
+                      Text('视频加载失败', style: TextStyle(color: Colors.white)),
+                    ],
                   ),
                 ),
-              ),
-            ),
+          if (_videoReady)
+            widget.controlsBuilder?.call(
+                  context,
+                  _videoController!,
+                  _isPlaying,
+                  _togglePlayback,
+                ) ??
+                Center(
+                  child: AnimatedOpacity(
+                    opacity: _isPlaying ? 0.0 : 1.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black45,
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      child: const Icon(
+                        Icons.play_arrow,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                  ),
+                ),
         ],
       ),
     );

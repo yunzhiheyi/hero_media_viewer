@@ -15,6 +15,12 @@ void showImageHeroOverlay({
   HeroOverlayController? controller,
   BoxFit thumbnailFit = BoxFit.contain,
   Alignment thumbnailAlignment = Alignment.center,
+  Widget Function(
+    BuildContext context,
+    ImageProvider imageProvider,
+    bool isFocus,
+  )? imageBuilder,
+  HeroOverlayForegroundBuilder? foregroundBuilder,
 }) {
   final imageProvider = MediaSource.from(imageSource);
   final overlayController = controller ?? HeroOverlayController();
@@ -27,6 +33,7 @@ void showImageHeroOverlay({
       fullScreen: fullScreen,
       controller: overlayController,
       onClose: onClose,
+      foregroundBuilder: foregroundBuilder,
       closeBuilder: (context, index, progress) {
         return Image(
           image: imageProvider,
@@ -50,6 +57,9 @@ void showImageHeroOverlay({
           externalVerticalDragUpdate: dragHandlers.onUpdate,
           externalVerticalDragEnd: dragHandlers.onEnd,
           itemBuilder: (BuildContext context, int index, bool isFocus) {
+            if (imageBuilder != null) {
+              return imageBuilder(context, imageProvider, isFocus);
+            }
             return Center(
               child: Image(image: imageProvider, fit: BoxFit.contain),
             );

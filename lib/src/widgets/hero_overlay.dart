@@ -871,14 +871,12 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
               animation: Listenable.merge([_expandController, _dragController]),
               builder: (context, child) {
                 return Positioned.fill(
-                  child: IgnorePointer(
-                    child: Opacity(
-                      opacity: _foregroundOpacity(),
-                      child: Stack(
-                        children: [
-                          widget.foregroundBuilder!(context, _currentIndex),
-                        ],
-                      ),
+                  child: Opacity(
+                    opacity: _foregroundOpacity(),
+                    child: Stack(
+                      children: [
+                        widget.foregroundBuilder!(context, _currentIndex),
+                      ],
                     ),
                   ),
                 );
