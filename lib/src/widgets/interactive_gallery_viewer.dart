@@ -70,6 +70,15 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
   double _dragProgress = 0;
   double _currentScale = 1.0;
 
+  // zoom 状态下"过拖（over-pan）转下滑关闭"的状态机
+  Offset? _lastPointerPosition;
+  double _lastTranslationY = 0;
+  bool _externalDragActive = false;
+
+  // 防止 mid-gesture rebuild 引起 InteractiveViewer 焦点漂移：
+  // 手指还在屏幕上时，不要因 scale 变化触发 _setGestureMode 重建。
+  bool get _gestureInProgress => currentTouchPointNum > 0;
+
   bool get _hasExternalVerticalDrag =>
       widget.externalVerticalDragStart != null &&
       widget.externalVerticalDragUpdate != null &&
@@ -132,10 +141,79 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
 
   void _onScaleChanged(double scale) {
     _currentScale = scale;
-    if (_isAtRestScale(scale)) {
+    // 手势进行中，先不调整 panEnabled/scaleEnabled 这类影响 InteractiveViewer 的状态，
+    // 否则 InteractiveViewer 在 pinch 过程中重建会导致焦点跳动 / 图片漂移。
+    if (_gestureInProgress) {
+      return;
+    }
+    _evalScaleMode();
+  }
+
+  void _evalScaleMode() {
+    if (_isAtRestScale(_currentScale)) {
       _setGestureMode(enablePageView: true, enableDismiss: true);
     } else {
       _setGestureMode(enablePageView: false, enableDismiss: false);
+    }
+  }
+
+  // 单指移动处理：
+  // - rest scale（_isAtRestScale）下，外层 GestureDetector 的 onVerticalDrag 会收到；
+  //   这里只兜底处理 zoom 状态下的"过拖（over-pan）转下滑关闭"。
+  // - zoom 状态下，InteractiveViewer 自己消化平移；当图片到达顶部边界后，多余的
+  //   下滑距离会"丢失"（matrix 不再更新），我们把丢失量转交给外层 dismiss handler。
+  void _handleSingleFingerMove(PointerMoveEvent event) {
+    final last = _lastPointerPosition;
+    if (last == null) {
+      _lastPointerPosition = event.position;
+      return;
+    }
+    final pointerDeltaY = event.position.dy - last.dy;
+    _lastPointerPosition = event.position;
+
+    if (_isAtRestScale(_currentScale)) {
+      // rest scale 时，由 _buildItem 的 GestureDetector.onVerticalDrag 处理。
+      _lastTranslationY = _transformationController!.value.getTranslation().y;
+      return;
+    }
+
+    // zoom 状态：检测过拖
+    final translationY = _transformationController!.value.getTranslation().y;
+    final translationDeltaY = translationY - _lastTranslationY;
+    _lastTranslationY = translationY;
+
+    // 用户向下拖（pointerDeltaY > 0），但 matrix 没跟上（已被边界 clamp）
+    final lostDY = pointerDeltaY - translationDeltaY;
+    if (pointerDeltaY > 0 && lostDY > 0.5) {
+      if (!_externalDragActive) {
+        _externalDragActive = true;
+        widget.externalVerticalDragStart?.call(
+          DragStartDetails(
+            globalPosition: event.position,
+            localPosition: event.localPosition,
+          ),
+        );
+      }
+      widget.externalVerticalDragUpdate?.call(
+        DragUpdateDetails(
+          delta: Offset(0, lostDY),
+          primaryDelta: lostDY,
+          globalPosition: event.position,
+          localPosition: event.localPosition,
+        ),
+      );
+    } else if (_externalDragActive && pointerDeltaY < 0) {
+      // 反向移动：取消已经开始的外部拖动（图片重新进入可平移区域）
+      _cancelExternalDragIfAny();
+    }
+  }
+
+  void _cancelExternalDragIfAny() {
+    if (_externalDragActive) {
+      widget.externalVerticalDragEnd?.call(
+        DragEndDetails(velocity: Velocity.zero),
+      );
+      _externalDragActive = false;
     }
   }
 
@@ -242,16 +320,36 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
             child: Listener(
               onPointerDown: (event) {
                 currentTouchPointNum++;
-                if (currentTouchPointNum > 1) {
+                if (currentTouchPointNum == 1) {
+                  _lastPointerPosition = event.position;
+                  _lastTranslationY =
+                      _transformationController!.value.getTranslation().y;
+                } else if (currentTouchPointNum > 1) {
+                  // 第 2 指落下：取消任何进行中的外部拖动（pinch 优先）
+                  _cancelExternalDragIfAny();
                   setState(() {
                     _enablePageView = false;
                   });
                 }
               },
+              onPointerMove: (event) {
+                if (currentTouchPointNum == 1 && _hasExternalVerticalDrag) {
+                  _handleSingleFingerMove(event);
+                }
+              },
               onPointerUp: (event) {
                 currentTouchPointNum =
                     (currentTouchPointNum - 1).clamp(0, 10).toInt();
-                if (currentTouchPointNum <= 1 &&
+                if (_externalDragActive) {
+                  widget.externalVerticalDragEnd?.call(
+                    DragEndDetails(velocity: Velocity.zero),
+                  );
+                  _externalDragActive = false;
+                }
+                if (currentTouchPointNum == 0) {
+                  _lastPointerPosition = null;
+                  _evalScaleMode();
+                } else if (currentTouchPointNum <= 1 &&
                     _isAtRestScale(_currentScale)) {
                   setState(() => _enablePageView = true);
                 }
@@ -259,7 +357,11 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
               onPointerCancel: (event) {
                 currentTouchPointNum =
                     (currentTouchPointNum - 1).clamp(0, 10).toInt();
-                if (currentTouchPointNum == 0 &&
+                _cancelExternalDragIfAny();
+                if (currentTouchPointNum == 0) {
+                  _lastPointerPosition = null;
+                  _evalScaleMode();
+                } else if (currentTouchPointNum <= 1 &&
                     _isAtRestScale(_currentScale)) {
                   setState(() => _enablePageView = true);
                 }
