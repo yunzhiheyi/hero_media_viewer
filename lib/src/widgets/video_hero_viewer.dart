@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 import '../core/image_aspect_ratio.dart';
 import '../core/media_source.dart';
 import '../models/media_item.dart';
+import 'animated_fit_image.dart';
 import 'hero_overlay.dart';
 import 'interactive_gallery_viewer.dart';
 
@@ -91,20 +92,25 @@ void showVideoHeroOverlay({
     onClose: onClose,
     tapToClose: false,
     foregroundBuilder: foregroundBuilder,
-    // 打开 / 关闭复用同一份缩略图预览，避免 t=0 那一帧从 cover 突变成 contain。
+    // 打开 / 关闭都用 AnimatedFitImage（cover ↔ contain 平滑过渡），消除 t=0 突变。
+    // 缩略图本身没有显式宽高比，沿用 startRect 的宽高比兜底。
     openBuilder: thumbProvider == null
         ? null
-        : (_, __, ___) => Image(
+        : (_, __, progress) => AnimatedFitImage(
               image: thumbProvider,
-              fit: thumbnailFit,
-              alignment: thumbnailAlignment,
+              aspectRatio: aspectRatio ?? rectAspectRatio(startRect),
+              progress: progress,
+              startFit: thumbnailFit,
+              endFit: BoxFit.contain,
             ),
     closeBuilder: thumbProvider == null
         ? null
-        : (_, __, ___) => Image(
+        : (_, __, progress) => AnimatedFitImage(
               image: thumbProvider,
-              fit: thumbnailFit,
-              alignment: thumbnailAlignment,
+              aspectRatio: aspectRatio ?? rectAspectRatio(startRect),
+              progress: 1.0 - progress,
+              startFit: thumbnailFit,
+              endFit: BoxFit.contain,
             ),
     dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
       sources: [videoSource],
@@ -183,17 +189,22 @@ void showMediaHeroOverlay({
       count: items.length,
       userForeground: foregroundBuilder,
     ),
-    // 打开 / 关闭复用同一份缩略图预览（图片用 imageProvider，视频用 thumbnail），
-    // 避免 t=0 那一帧从 cover 突变成 contain 造成尺寸闪烁。
-    openBuilder: (_, index, __) => _mediaPreview(
+    // 打开 / 关闭都用 AnimatedFitImage（cover ↔ contain 平滑过渡）。
+    // 图片用 imageProvider 真实宽高比；视频用 thumbnail，宽高比沿用 item.aspectRatio
+    // 或 startRect 兜底。
+    openBuilder: (_, index, progress) => _mediaPreview(
       items[index],
       thumbnailFit,
       thumbnailAlignment,
+      progress,
+      startRect,
     ),
-    closeBuilder: (_, index, __) => _mediaPreview(
+    closeBuilder: (_, index, progress) => _mediaPreview(
       items[index],
       thumbnailFit,
       thumbnailAlignment,
+      1.0 - progress,
+      startRect,
     ),
     dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
       sources: items,
@@ -262,13 +273,27 @@ HeroOverlayForegroundBuilder? _mergedForeground({
       );
 }
 
-/// 把一个 [MediaItem] 渲染成 hero overlay 打开 / 关闭动画用的缩略图预览。
-/// 图片用 [MediaItem.imageProvider]，视频用 [MediaItem.thumbnail]；都没有时给一块黑。
-Widget _mediaPreview(MediaItem item, BoxFit fit, Alignment alignment) {
+/// 把一个 [MediaItem] 渲染成 hero overlay 打开 / 关闭动画用的渐变 fit 预览。
+///
+/// [progress] 0 表示 [startFit]（缩略图样式），1 表示 contain（overlay 样式）。
+/// 图片项用 [MediaItem.imageProvider]，视频项用 [MediaItem.thumbnail]；都没有时给一块黑。
+Widget _mediaPreview(
+  MediaItem item,
+  BoxFit startFit,
+  Alignment alignment,
+  double progress,
+  Rect startRect,
+) {
   final provider =
       item.type == MediaType.image ? item.imageProvider : item.thumbnail;
   if (provider == null) return const ColoredBox(color: Colors.black);
-  return Image(image: provider, fit: fit, alignment: alignment);
+  return AnimatedFitImage(
+    image: provider,
+    aspectRatio: item.aspectRatio ?? rectAspectRatio(startRect),
+    progress: progress,
+    startFit: startFit,
+    endFit: BoxFit.contain,
+  );
 }
 
 ImageProvider _requireImage(MediaItem item) {

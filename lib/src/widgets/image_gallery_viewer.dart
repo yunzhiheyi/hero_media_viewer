@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/image_aspect_ratio.dart';
 import '../core/media_source.dart';
+import 'animated_fit_image.dart';
 import 'hero_overlay.dart';
 import 'interactive_gallery_viewer.dart';
 
@@ -64,17 +65,23 @@ void showImageGalleryOverlay({
         count: providers.length,
         userForeground: foregroundBuilder,
       ),
-      // openBuilder / closeBuilder 用同一套缩略图渲染：避免 t=0 那一帧从 cover
-      // 突变成 contain 引起尺寸闪烁。
-      openBuilder: (_, index, __) => Image(
+      // 打开 / 关闭使用 AnimatedFitImage，按当前图片宽高比平滑插值 cover ↔ contain，
+      // 避免缩略图 fit 与 overlay 内部 BoxFit.contain 之间的尺寸跳变。
+      // 翻页过去再展开的情况下，沿用初始展开时解析到的 resolvedAspectRatio 作为兜底
+      // （openBuilder 仅在 expand 动画过程中可见，普通切页时不参与渲染）。
+      openBuilder: (_, index, progress) => AnimatedFitImage(
         image: providers[index],
-        fit: thumbnailFit,
-        alignment: thumbnailAlignment,
+        aspectRatio: resolvedAspectRatio,
+        progress: progress,
+        startFit: thumbnailFit,
+        endFit: BoxFit.contain,
       ),
-      closeBuilder: (_, index, __) => Image(
+      closeBuilder: (_, index, progress) => AnimatedFitImage(
         image: providers[index],
-        fit: thumbnailFit,
-        alignment: thumbnailAlignment,
+        aspectRatio: resolvedAspectRatio,
+        progress: 1.0 - progress,
+        startFit: thumbnailFit,
+        endFit: BoxFit.contain,
       ),
       dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
         sources: providers,

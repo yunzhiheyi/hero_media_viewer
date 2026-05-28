@@ -1136,11 +1136,15 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
     return Curves.easeOutCubic.transform((value - start) / (end - start));
   }
 
-  /// 打开 / 关闭过程中用 openBuilder / closeBuilder 在内容之上做交叉淡入淡出，
-  /// 让 overlay 的 BoxFit.contain 渲染与缩略图（通常 BoxFit.cover）之间无缝过渡。
-  /// 没传对应 builder 时直接显示 child，没有 preview 层。
+  /// 打开 / 关闭过程中用 openBuilder / closeBuilder 在内容之上做平滑过渡。
+  ///
+  /// 设计前提：调用方传入的 openBuilder / closeBuilder 自己已经按 progress 平滑
+  /// 插值（如 [AnimatedFitImage] 做 cover ↔ contain 渐变），且在 progress 边界处
+  /// 渲染结果与 child 一致——这样 t=1 / outer=0 切换都不会肉眼可见。
   Widget _buildOverlayContent(BuildContext context, Widget child) {
-    // 关闭：child 淡出 + closeBuilder 淡入。
+    // 关闭：closeBuilder 完全盖在 child 之上。
+    // outer=0：closeBuilder 渲染 contain，与 child 一致，切入无感；
+    // outer=1：closeBuilder 渲染缩略图 fit，匹配 startRect。
     if (_isClosing &&
         _closeStartRect != null &&
         widget.closeBuilder != null) {
@@ -1148,33 +1152,28 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
       return Stack(
         fit: StackFit.expand,
         children: [
-          Opacity(opacity: 1.0 - progress, child: child),
-          Opacity(
-            opacity: progress,
+          child,
+          IgnorePointer(
             child: widget.closeBuilder!(context, _currentIndex, progress),
           ),
         ],
       );
     }
 
-    // 打开：openBuilder 在 child 之上，随展开进度淡出。
-    // 让 t=0 那一帧呈现的还是"缩略图样式"，避免从 cover 突变成 contain 的闪烁。
+    // 打开：t < 1 时 openBuilder 不透明地盖在 child 上自己负责过渡；
+    // t = 1 时移除 openBuilder，由 child 接管（此时两者渲染一致，切换不可见）。
     if (!_isClosing &&
         !_isResetting &&
         widget.openBuilder != null &&
         _expandController != null) {
       final t = _expandController!.value.clamp(0.0, 1.0);
-      final previewOpacity = (1.0 - _interval(t, 0.32, 0.70)).clamp(0.0, 1.0);
-      if (previewOpacity > 0 && t < 1.0) {
+      if (t < 1.0) {
         return Stack(
           fit: StackFit.expand,
           children: [
             child,
             IgnorePointer(
-              child: Opacity(
-                opacity: previewOpacity,
-                child: widget.openBuilder!(context, _currentIndex, t),
-              ),
+              child: widget.openBuilder!(context, _currentIndex, t),
             ),
           ],
         );

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/image_aspect_ratio.dart';
 import '../core/media_source.dart';
+import 'animated_fit_image.dart';
 import 'hero_overlay.dart';
 import 'interactive_gallery_viewer.dart';
 
@@ -47,17 +48,22 @@ void showImageHeroOverlay({
       controller: overlayController,
       onClose: onClose,
       foregroundBuilder: foregroundBuilder,
-      // 打开与关闭使用同一份缩略图预览：避免 t=0 时从 thumbnailFit（通常 cover）
-      // 突然切到 overlay 的 BoxFit.contain，造成尺寸闪烁。
-      openBuilder: (_, __, ___) => Image(
+      // 打开方向使用 AnimatedFitImage，按图片真实宽高比平滑插值 cover → contain，
+      // 避免任意 t 上 preview（cover 渲染）和 child（contain 渲染）大小不一致
+      // 引起的闪动。关闭方向反过来从 contain → cover。
+      openBuilder: (_, __, progress) => AnimatedFitImage(
         image: imageProvider,
-        fit: thumbnailFit,
-        alignment: thumbnailAlignment,
+        aspectRatio: resolvedAspectRatio,
+        progress: progress,
+        startFit: thumbnailFit,
+        endFit: BoxFit.contain,
       ),
-      closeBuilder: (_, __, ___) => Image(
+      closeBuilder: (_, __, progress) => AnimatedFitImage(
         image: imageProvider,
-        fit: thumbnailFit,
-        alignment: thumbnailAlignment,
+        aspectRatio: resolvedAspectRatio,
+        progress: 1.0 - progress,
+        startFit: thumbnailFit,
+        endFit: BoxFit.contain,
       ),
       dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
         sources: [imageProvider],
