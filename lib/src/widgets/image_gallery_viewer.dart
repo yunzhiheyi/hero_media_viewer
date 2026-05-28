@@ -1,10 +1,30 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import '../core/image_aspect_ratio.dart';
+import '../core/media_source.dart';
 import 'hero_overlay.dart';
 import 'interactive_gallery_viewer.dart';
-import '../core/media_source.dart';
 
+/// 多图画廊 hero overlay 的自定义图片构建器。
+typedef GalleryImageBuilder = Widget Function(
+  BuildContext context,
+  ImageProvider imageProvider,
+  int index,
+  bool isFocus,
+);
+
+/// 打开多图 swipe 画廊 overlay。
+///
+/// 流程：从 [startRect] 展开 → 内置 PageView 左右滑动 → 点击/下拉关闭。
+/// 默认按 [imageSources] 第一项的真实宽高比展开（异步解析，超时退化为 startRect）。
+///
+/// 自定义：
+/// - [imageBuilder]：替换默认图片渲染（每页可获取 index 和 isFocus）。
+/// - [foregroundBuilder]：在 overlay 之上叠加；若 [showIndicator] 为 true，
+///   内置指示器会用 `Stack` 与之共存。
+/// - [itemRects]：每张图原始位置矩形，切页时关闭动画回到对应缩略图。
 void showImageGalleryOverlay({
   required BuildContext context,
   required List<dynamic> imageSources,
@@ -19,18 +39,13 @@ void showImageGalleryOverlay({
   HeroOverlayController? controller,
   BoxFit thumbnailFit = BoxFit.cover,
   Alignment thumbnailAlignment = Alignment.center,
-  Widget Function(
-    BuildContext context,
-    ImageProvider imageProvider,
-    int index,
-    bool isFocus,
-  )? imageBuilder,
+  GalleryImageBuilder? imageBuilder,
   HeroOverlayForegroundBuilder? foregroundBuilder,
 }) {
-  _validateImageSources(imageSources, initialIndex);
+  _validateSources(imageSources, initialIndex);
 
-  final imageProviders =
-      imageSources.map((source) => MediaSource.from(source)).toList();
+  final providers =
+      imageSources.map((s) => MediaSource.from(s)).toList(growable: false);
   final currentIndex = ValueNotifier<int>(initialIndex);
 
   void open(double resolvedAspectRatio) {
@@ -45,51 +60,34 @@ void showImageGalleryOverlay({
       controller: controller,
       onClose: onClose,
       foregroundBuilder: _mergedForeground(
-        showIndicator: showIndicator && imageProviders.length > 1,
-        count: imageProviders.length,
+        showIndicator: showIndicator && providers.length > 1,
+        count: providers.length,
         userForeground: foregroundBuilder,
       ),
-      closeBuilder: (context, index, progress) {
-        return Image(
-          image: imageProviders[index],
-          fit: thumbnailFit,
-          alignment: thumbnailAlignment,
-        );
-      },
-      dragBuilder: (
-        BuildContext context,
-        HeroOverlayDragHandlers dragHandlers,
-      ) {
-        return InteractiveGalleryViewer(
-          sources: imageProviders,
-          initIndex: initialIndex,
-          enableIndicator: false,
-          showBackground: false,
-          showAppBar: false,
-          tapToDismiss: false,
-          dismissEnabled: false,
-          externalVerticalDragStart: dragHandlers.onStart,
-          externalVerticalDragUpdate: dragHandlers.onUpdate,
-          externalVerticalDragEnd: dragHandlers.onEnd,
-          onPageChanged: (index) {
-            currentIndex.value = index;
-            onPageChanged?.call(index);
-          },
-          itemBuilder: (BuildContext context, int index, bool isFocus) {
-            if (imageBuilder != null) {
-              return imageBuilder(
-                context,
-                imageProviders[index],
-                index,
-                isFocus,
-              );
-            }
-            return Center(
-              child: Image(image: imageProviders[index], fit: BoxFit.contain),
-            );
-          },
-        );
-      },
+      closeBuilder: (_, index, __) => Image(
+        image: providers[index],
+        fit: thumbnailFit,
+        alignment: thumbnailAlignment,
+      ),
+      dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
+        sources: providers,
+        initIndex: initialIndex,
+        enableIndicator: false,
+        showBackground: false,
+        showAppBar: false,
+        tapToDismiss: false,
+        dismissEnabled: false,
+        externalVerticalDragStart: dragHandlers.onStart,
+        externalVerticalDragUpdate: dragHandlers.onUpdate,
+        externalVerticalDragEnd: dragHandlers.onEnd,
+        onPageChanged: (i) {
+          currentIndex.value = i;
+          onPageChanged?.call(i);
+        },
+        itemBuilder: (c, index, isFocus) =>
+            imageBuilder?.call(c, providers[index], index, isFocus) ??
+            Center(child: Image(image: providers[index], fit: BoxFit.contain)),
+      ),
     );
   }
 
@@ -98,85 +96,46 @@ void showImageGalleryOverlay({
     return;
   }
 
-  unawaited(
-    _resolveImageAspectRatio(imageProviders[initialIndex]).then((
-      resolvedAspectRatio,
-    ) {
-      if (!context.mounted) return;
-      open(resolvedAspectRatio ?? _rectAspectRatio(startRect));
-    }),
-  );
+  unawaited(resolveImageAspectRatio(providers[initialIndex]).then((resolved) {
+    if (!context.mounted) return;
+    open(resolved ?? rectAspectRatio(startRect));
+  }));
 }
 
-Future<double?> _resolveImageAspectRatio(ImageProvider imageProvider) {
-  final completer = Completer<double?>();
-  final stream = imageProvider.resolve(ImageConfiguration.empty);
-  late ImageStreamListener listener;
-
-  listener = ImageStreamListener(
-    (info, _) {
-      final width = info.image.width;
-      final height = info.image.height;
-      stream.removeListener(listener);
-      completer.complete(height == 0 ? null : width / height);
-    },
-    onError: (error, stackTrace) {
-      stream.removeListener(listener);
-      completer.complete(null);
-    },
-  );
-
-  stream.addListener(listener);
-
-  return completer.future.timeout(
-    const Duration(milliseconds: 250),
-    onTimeout: () {
-      stream.removeListener(listener);
-      return null;
-    },
-  );
-}
-
+/// 合并"内置指示器"与"用户 foregroundBuilder"：
+/// - 都没有 → 返回 null（不创建 foreground 层）
+/// - 只有一个 → 直接返回
+/// - 两个都有 → 用 [Stack] 叠加，指示器位于下层（用户自定义浮层在上）
 HeroOverlayForegroundBuilder? _mergedForeground({
   required bool showIndicator,
   required int count,
   HeroOverlayForegroundBuilder? userForeground,
 }) {
-  if (!showIndicator && userForeground == null) return null;
   if (!showIndicator) return userForeground;
   if (userForeground == null) {
-    return (context, index) =>
-        HeroOverlayPageIndicator(count: count, index: index);
+    return (c, i) => HeroOverlayPageIndicator(count: count, index: i);
   }
-  return (context, index) => Stack(
-    children: [
-      HeroOverlayPageIndicator(count: count, index: index),
-      userForeground(context, index),
-    ],
-  );
+  return (c, i) => Stack(
+        children: [
+          HeroOverlayPageIndicator(count: count, index: i),
+          userForeground(c, i),
+        ],
+      );
 }
 
-double _rectAspectRatio(Rect rect) {
-  if (rect.height <= 0) {
-    return 1.0;
-  }
-  return rect.width / rect.height;
-}
-
-void _validateImageSources(List<dynamic> imageSources, int initialIndex) {
-  if (imageSources.isEmpty) {
+void _validateSources(List<dynamic> sources, int initialIndex) {
+  if (sources.isEmpty) {
     throw ArgumentError.value(
-      imageSources,
+      sources,
       'imageSources',
       'imageSources must not be empty.',
     );
   }
-
-  if (initialIndex < 0 || initialIndex >= imageSources.length) {
+  if (initialIndex < 0 || initialIndex >= sources.length) {
     throw RangeError.range(
       initialIndex,
       0,
-      imageSources.length - 1,
+      sources.length - 1,
       'initialIndex',
     );
   }

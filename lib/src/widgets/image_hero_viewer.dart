@@ -1,10 +1,27 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import '../core/image_aspect_ratio.dart';
+import '../core/media_source.dart';
 import 'hero_overlay.dart';
 import 'interactive_gallery_viewer.dart';
-import '../core/media_source.dart';
 
+/// 单图 hero overlay 自定义构建器（替换默认 `Image(fit: contain)`）。
+typedef SingleImageBuilder = Widget Function(
+  BuildContext context,
+  ImageProvider imageProvider,
+  bool isFocus,
+);
+
+/// 打开单图 hero overlay。
+///
+/// 流程：测量缩略图 [startRect] → 异步解析图片真实宽高比 → 展开到目标矩形。
+/// 解析超时（250ms）或失败时退化为 [startRect] 的宽高比。
+///
+/// 自定义：
+/// - [imageBuilder]：替换默认图片渲染（如换 `CachedNetworkImage`、加水印）。
+/// - [foregroundBuilder]：在 overlay 之上叠加自定义层（保存按钮、说明字等）。
 void showImageHeroOverlay({
   required BuildContext context,
   required dynamic imageSource,
@@ -15,11 +32,7 @@ void showImageHeroOverlay({
   HeroOverlayController? controller,
   BoxFit thumbnailFit = BoxFit.contain,
   Alignment thumbnailAlignment = Alignment.center,
-  Widget Function(
-    BuildContext context,
-    ImageProvider imageProvider,
-    bool isFocus,
-  )? imageBuilder,
+  SingleImageBuilder? imageBuilder,
   HeroOverlayForegroundBuilder? foregroundBuilder,
 }) {
   final imageProvider = MediaSource.from(imageSource);
@@ -34,38 +47,26 @@ void showImageHeroOverlay({
       controller: overlayController,
       onClose: onClose,
       foregroundBuilder: foregroundBuilder,
-      closeBuilder: (context, index, progress) {
-        return Image(
-          image: imageProvider,
-          fit: thumbnailFit,
-          alignment: thumbnailAlignment,
-        );
-      },
-      dragBuilder: (
-        BuildContext context,
-        HeroOverlayDragHandlers dragHandlers,
-      ) {
-        return InteractiveGalleryViewer(
-          sources: [imageProvider],
-          initIndex: 0,
-          isSingle: true,
-          showBackground: false,
-          showAppBar: false,
-          tapToDismiss: false,
-          dismissEnabled: false,
-          externalVerticalDragStart: dragHandlers.onStart,
-          externalVerticalDragUpdate: dragHandlers.onUpdate,
-          externalVerticalDragEnd: dragHandlers.onEnd,
-          itemBuilder: (BuildContext context, int index, bool isFocus) {
-            if (imageBuilder != null) {
-              return imageBuilder(context, imageProvider, isFocus);
-            }
-            return Center(
-              child: Image(image: imageProvider, fit: BoxFit.contain),
-            );
-          },
-        );
-      },
+      closeBuilder: (_, __, ___) => Image(
+        image: imageProvider,
+        fit: thumbnailFit,
+        alignment: thumbnailAlignment,
+      ),
+      dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
+        sources: [imageProvider],
+        initIndex: 0,
+        isSingle: true,
+        showBackground: false,
+        showAppBar: false,
+        tapToDismiss: false,
+        dismissEnabled: false,
+        externalVerticalDragStart: dragHandlers.onStart,
+        externalVerticalDragUpdate: dragHandlers.onUpdate,
+        externalVerticalDragEnd: dragHandlers.onEnd,
+        itemBuilder: (c, _, isFocus) =>
+            imageBuilder?.call(c, imageProvider, isFocus) ??
+            Center(child: Image(image: imageProvider, fit: BoxFit.contain)),
+      ),
     );
   }
 
@@ -74,46 +75,9 @@ void showImageHeroOverlay({
     return;
   }
 
-  unawaited(
-    _resolveImageAspectRatio(imageProvider).then((resolvedAspectRatio) {
-      if (!context.mounted) return;
-      open(resolvedAspectRatio ?? _rectAspectRatio(startRect));
-    }),
-  );
-}
-
-Future<double?> _resolveImageAspectRatio(ImageProvider imageProvider) {
-  final completer = Completer<double?>();
-  final stream = imageProvider.resolve(ImageConfiguration.empty);
-  late ImageStreamListener listener;
-
-  listener = ImageStreamListener(
-    (info, _) {
-      final width = info.image.width;
-      final height = info.image.height;
-      stream.removeListener(listener);
-      completer.complete(height == 0 ? null : width / height);
-    },
-    onError: (error, stackTrace) {
-      stream.removeListener(listener);
-      completer.complete(null);
-    },
-  );
-
-  stream.addListener(listener);
-
-  return completer.future.timeout(
-    const Duration(milliseconds: 250),
-    onTimeout: () {
-      stream.removeListener(listener);
-      return null;
-    },
-  );
-}
-
-double _rectAspectRatio(Rect rect) {
-  if (rect.height <= 0) {
-    return 1.0;
-  }
-  return rect.width / rect.height;
+  // 异步解析真实宽高比，兜底用缩略图矩形的宽高比。
+  unawaited(resolveImageAspectRatio(imageProvider).then((resolved) {
+    if (!context.mounted) return;
+    open(resolved ?? rectAspectRatio(startRect));
+  }));
 }

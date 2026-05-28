@@ -1,10 +1,30 @@
 import 'package:flutter/material.dart';
+
 import 'custom_dismissible.dart';
 import 'interactive_viewer_boundary.dart';
 
-typedef IndexedFocusedWidgetBuilder =
-    Widget Function(BuildContext context, int index, bool isFocus);
+/// `(context, index, isFocus)` 形式的列表项构造器签名，与 [PageView.builder] 协作。
+typedef IndexedFocusedWidgetBuilder = Widget Function(
+  BuildContext context,
+  int index,
+  bool isFocus,
+);
 
+/// rest 状态阈值：scale ≤ 1.01 视为没放大，开启翻页 / 下滑关闭。
+const double _kRestScaleEpsilon = 1.01;
+
+/// 过拖触发下滑关闭的最小丢失像素（避免微小抖动误触）。
+const double _kOverPanThreshold = 0.5;
+
+/// 缩放 + 翻页 + 下滑关闭一体化的画廊容器。
+///
+/// 集成：[InteractiveViewer] 双指缩放 + [PageView] 左右翻页 + [CustomDismissible] 下滑关闭，
+/// 并通过 `externalVerticalDrag*` 把下滑事件转交给外层（hero overlay 的关闭回位动画）。
+///
+/// 关键交互规则：
+/// 1. **rest scale**：1 指下滑 → 触发关闭；2 指 → pinch 放大。
+/// 2. **zoom scale**：1 指 → 平移；图片到顶/底边界后继续向下拖 → 转为关闭手势。
+/// 3. **2 指落下**：立即取消 1 指阶段已经吃下的拖动，避免 pinch 焦点漂移。
 class InteractiveGalleryViewer<T> extends StatefulWidget {
   const InteractiveGalleryViewer({
     super.key,
@@ -29,22 +49,52 @@ class InteractiveGalleryViewer<T> extends StatefulWidget {
     this.onDismissDragCancel,
   });
 
-  final bool isSingle;
-  final bool enableIndicator;
+  /// 数据源列表（任意类型，由 [itemBuilder] 自行渲染）。
   final List<T> sources;
+
+  /// 初始页索引。
   final int initIndex;
-  final Widget? appBar;
+
+  /// 单项渲染器：(context, index, isFocus)。
   final IndexedFocusedWidgetBuilder itemBuilder;
+
+  /// 单图模式开关：true 时不使用 PageView。
+  final bool isSingle;
+
+  /// 是否显示底部页码指示点。
+  final bool enableIndicator;
+
+  /// 自定义 AppBar；为空时使用内置关闭按钮 + 页码标题。
+  final Widget? appBar;
+
+  /// 最大 / 最小缩放比例（透传给 [InteractiveViewer]）。
   final double maxScale;
   final double minScale;
+
+  /// 翻页回调。
   final ValueChanged<int>? onPageChanged;
+
+  /// 关闭请求回调；为空时直接 `Navigator.of(context).pop()`。
   final VoidCallback? onCloseRequested;
+
+  /// 下拖关闭开始/取消回调。
   final VoidCallback? onDismissDragStart;
   final VoidCallback? onDismissDragCancel;
+
+  /// 是否显示黑色背景层。
   final bool showBackground;
+
+  /// 是否显示 AppBar。
   final bool showAppBar;
+
+  /// 是否启用单击关闭。
   final bool tapToDismiss;
+
+  /// 是否启用内置 [CustomDismissible] 下拖关闭。
   final bool dismissEnabled;
+
+  /// 三个外部下拖事件回调：当全部提供时，rest 状态的下拖会被路由给外部
+  /// （hero overlay 用于关闭回位动画）；缺一即视为不启用。
   final GestureDragStartCallback? externalVerticalDragStart;
   final GestureDragUpdateCallback? externalVerticalDragUpdate;
   final GestureDragEndCallback? externalVerticalDragEnd;
@@ -56,31 +106,34 @@ class InteractiveGalleryViewer<T> extends StatefulWidget {
 
 class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
     with TickerProviderStateMixin {
+  // ─── controllers ─────────────────────────────────────────────────────────
   PageController? _pageController;
-  TransformationController? _transformationController;
-  late AnimationController _animationController;
-  Animation<Matrix4>? _animation;
+  final _transformController = TransformationController();
+  late final AnimationController _doubleTapAnim;
+  Animation<Matrix4>? _doubleTapAnimation;
 
+  // ─── ui state ────────────────────────────────────────────────────────────
+  int? currentIndex;
   bool _enablePageView = true;
   bool _enableDismiss = true;
-  late Offset _doubleTapLocalPosition;
-  int? currentIndex;
   bool isDismissDrag = false;
-  int currentTouchPointNum = 0;
   double _dragProgress = 0;
-  double _currentScale = 1.0;
 
-  // zoom 状态下"过拖（over-pan）转下滑关闭"的状态机
+  // ─── gesture tracking ────────────────────────────────────────────────────
+  int currentTouchPointNum = 0;
+  double _currentScale = 1.0;
+  late Offset _doubleTapLocalPosition;
+
+  /// zoom 状态下"过拖（over-pan）转下滑关闭"的状态机：
+  /// 记录最近一次 pointer 位置和 matrix translation，对比每帧的 finger 位移 vs.
+  /// matrix 位移，差值就是被边界吃掉的"丢失"距离，超阈值则转交给外部 drag。
   Offset? _lastPointerPosition;
   double _lastTranslationY = 0;
   bool _externalDragActive = false;
 
-  // rest scale 下，_buildItem 内 GestureDetector 触发的下滑关闭是否已激活；
-  // 用来在 2 指落下时取消（避免 1 指无意中触发的 dismiss drag 把 overlay 拉走）。
+  /// rest 状态下 1 指 dismiss drag 是否已激活；2 指落下时用它来取消已触发的拖动。
   bool _externalDismissDragActive = false;
 
-  // 防止 mid-gesture rebuild 引起 InteractiveViewer 焦点漂移：
-  // 手指还在屏幕上时，不要因 scale 变化触发 _setGestureMode 重建。
   bool get _gestureInProgress => currentTouchPointNum > 0;
 
   bool get _hasExternalVerticalDrag =>
@@ -88,45 +141,51 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
       widget.externalVerticalDragUpdate != null &&
       widget.externalVerticalDragEnd != null;
 
+  bool _isAtRest(double scale) => scale <= _kRestScaleEpsilon;
+
+  // ─── lifecycle ───────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
     if (!widget.isSingle) {
       _pageController = PageController(initialPage: widget.initIndex);
     }
-    _transformationController = TransformationController();
-    _animationController =
-        AnimationController(
-            vsync: this,
-            duration: const Duration(milliseconds: 300),
-          )
-          ..addListener(() {
-            _transformationController!.value =
-                _animation?.value ?? Matrix4.identity();
-          })
-          ..addStatusListener((AnimationStatus status) {
-            if (status == AnimationStatus.completed && !_enableDismiss) {
-              setState(() {
-                _enableDismiss = true;
-              });
-            }
-          });
-
+    _doubleTapAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    )
+      ..addListener(() {
+        _transformController.value =
+            _doubleTapAnimation?.value ?? Matrix4.identity();
+      })
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed && !_enableDismiss) {
+          setState(() => _enableDismiss = true);
+        }
+      });
     currentIndex = widget.initIndex;
   }
 
   @override
   void dispose() {
-    if (!widget.isSingle) {
-      _pageController!.dispose();
-    }
-    _transformationController?.dispose();
-    _animationController.dispose();
+    _pageController?.dispose();
+    _transformController.dispose();
+    _doubleTapAnim.dispose();
     super.dispose();
   }
 
-  bool _isAtRestScale(double scale) {
-    return scale <= 1.01;
+  // ─── scale state machine ─────────────────────────────────────────────────
+  /// scale 实时回调；手势中不重建 InteractiveViewer，避免 pinch 焦点漂移。
+  void _onScaleChanged(double scale) {
+    _currentScale = scale;
+    if (_gestureInProgress) return;
+    _evalScaleMode();
+  }
+
+  /// 根据当前 scale 同步 PageView / Dismiss 启用状态（仅在手势结束时调用）。
+  void _evalScaleMode() {
+    final atRest = _isAtRest(_currentScale);
+    _setGestureMode(enablePageView: atRest, enableDismiss: atRest);
   }
 
   void _setGestureMode({
@@ -136,36 +195,15 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
     if (_enablePageView == enablePageView && _enableDismiss == enableDismiss) {
       return;
     }
-
     setState(() {
       _enablePageView = enablePageView;
       _enableDismiss = enableDismiss;
     });
   }
 
-  void _onScaleChanged(double scale) {
-    _currentScale = scale;
-    // 手势进行中，先不调整 panEnabled/scaleEnabled 这类影响 InteractiveViewer 的状态，
-    // 否则 InteractiveViewer 在 pinch 过程中重建会导致焦点跳动 / 图片漂移。
-    if (_gestureInProgress) {
-      return;
-    }
-    _evalScaleMode();
-  }
-
-  void _evalScaleMode() {
-    if (_isAtRestScale(_currentScale)) {
-      _setGestureMode(enablePageView: true, enableDismiss: true);
-    } else {
-      _setGestureMode(enablePageView: false, enableDismiss: false);
-    }
-  }
-
-  // 单指移动处理：
-  // - rest scale（_isAtRestScale）下，外层 GestureDetector 的 onVerticalDrag 会收到；
-  //   这里只兜底处理 zoom 状态下的"过拖（over-pan）转下滑关闭"。
-  // - zoom 状态下，InteractiveViewer 自己消化平移；当图片到达顶部边界后，多余的
-  //   下滑距离会"丢失"（matrix 不再更新），我们把丢失量转交给外层 dismiss handler。
+  // ─── over-pan detection (zoom 状态) ──────────────────────────────────────
+  /// zoom 状态下单指下拖处理：
+  /// matrix 因为边界 clamp 而吃不下的 Y 位移，转交给外部 drag handler 用作下滑关闭。
   void _handleSingleFingerMove(PointerMoveEvent event) {
     final last = _lastPointerPosition;
     if (last == null) {
@@ -175,87 +213,76 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
     final pointerDeltaY = event.position.dy - last.dy;
     _lastPointerPosition = event.position;
 
-    if (_isAtRestScale(_currentScale)) {
-      // rest scale 时，由 _buildItem 的 GestureDetector.onVerticalDrag 处理。
-      _lastTranslationY = _transformationController!.value.getTranslation().y;
+    if (_isAtRest(_currentScale)) {
+      // rest 状态由 _buildItem 的 VerticalDrag 处理，这里仅同步基准。
+      _lastTranslationY = _transformController.value.getTranslation().y;
       return;
     }
 
-    // zoom 状态：检测过拖
-    final translationY = _transformationController!.value.getTranslation().y;
+    final translationY = _transformController.value.getTranslation().y;
     final translationDeltaY = translationY - _lastTranslationY;
     _lastTranslationY = translationY;
 
-    // 用户向下拖（pointerDeltaY > 0），但 matrix 没跟上（已被边界 clamp）
+    // 用户下拖（>0）但 matrix 没跟上（被顶部边界 clamp），多出的就是丢失量。
     final lostDY = pointerDeltaY - translationDeltaY;
-    if (pointerDeltaY > 0 && lostDY > 0.5) {
+
+    if (pointerDeltaY > 0 && lostDY > _kOverPanThreshold) {
       if (!_externalDragActive) {
         _externalDragActive = true;
-        widget.externalVerticalDragStart?.call(
-          DragStartDetails(
-            globalPosition: event.position,
-            localPosition: event.localPosition,
-          ),
-        );
-      }
-      widget.externalVerticalDragUpdate?.call(
-        DragUpdateDetails(
-          delta: Offset(0, lostDY),
-          primaryDelta: lostDY,
+        widget.externalVerticalDragStart?.call(DragStartDetails(
           globalPosition: event.position,
           localPosition: event.localPosition,
-        ),
-      );
-    } else if (_externalDragActive && pointerDeltaY < 0) {
-      // 反向移动：取消已经开始的外部拖动（图片重新进入可平移区域）
-      _cancelExternalDragIfAny();
-    }
-  }
-
-  void _cancelExternalDragIfAny() {
-    if (_externalDragActive) {
-      widget.externalVerticalDragEnd?.call(
-        DragEndDetails(velocity: Velocity.zero),
-      );
-      _externalDragActive = false;
-    }
-  }
-
-  void _onLeftBoundaryHit() {
-    _enablePageViewAtZoomBoundary(isLeftBoundary: true);
-  }
-
-  void _onRightBoundaryHit() {
-    _enablePageViewAtZoomBoundary(isLeftBoundary: false);
-  }
-
-  void _enablePageViewAtZoomBoundary({required bool isLeftBoundary}) {
-    if (_pageController != null &&
-        _pageController!.hasClients &&
-        !_enablePageView &&
-        _pageController!.page != null &&
-        !widget.isSingle) {
-      final page = _pageController!.page!.round();
-      final canMoveToPrevious = page > 0;
-      final canMoveToNext = page < widget.sources.length - 1;
-
-      if ((isLeftBoundary && canMoveToPrevious) ||
-          (!isLeftBoundary && canMoveToNext)) {
-        setState(() {
-          _enablePageView = true;
-        });
+        ));
       }
+      widget.externalVerticalDragUpdate?.call(DragUpdateDetails(
+        delta: Offset(0, lostDY),
+        primaryDelta: lostDY,
+        globalPosition: event.position,
+        localPosition: event.localPosition,
+      ));
+    } else if (_externalDragActive && pointerDeltaY < 0) {
+      // 反向拖动 → 取消已开始的外部 drag（图片重新进入可平移区域）。
+      _cancelOverPanDrag();
     }
+  }
+
+  void _cancelOverPanDrag() {
+    if (!_externalDragActive) return;
+    widget.externalVerticalDragEnd?.call(
+      DragEndDetails(velocity: Velocity.zero),
+    );
+    _externalDragActive = false;
+  }
+
+  void _cancelDismissDrag() {
+    if (!_externalDismissDragActive) return;
+    _externalDismissDragActive = false;
+    widget.externalVerticalDragEnd?.call(
+      DragEndDetails(velocity: Velocity.zero),
+    );
+  }
+
+  // ─── boundary callbacks (PageView 协作) ──────────────────────────────────
+  void _onLeftBoundaryHit() => _enablePageViewAtZoomBoundary(left: true);
+  void _onRightBoundaryHit() => _enablePageViewAtZoomBoundary(left: false);
+
+  /// 已放大状态触及左/右边界：若 PageView 还能往那个方向滑，就打开翻页。
+  void _enablePageViewAtZoomBoundary({required bool left}) {
+    final pc = _pageController;
+    if (pc == null || !pc.hasClients || _enablePageView || widget.isSingle) {
+      return;
+    }
+    final page = pc.page?.round() ?? widget.initIndex;
+    final canMove = left ? page > 0 : page < widget.sources.length - 1;
+    if (canMove) setState(() => _enablePageView = true);
   }
 
   void _onNoBoundaryHit() {
-    if (_enablePageView) {
-      setState(() {
-        _enablePageView = false;
-      });
-    }
+    if (_enablePageView) setState(() => _enablePageView = false);
   }
 
+  // ─── page change ─────────────────────────────────────────────────────────
+  /// 翻页时立即重置 transform（避免新页继承上一页的缩放/平移状态）。
   void _onPageChanged(int page) {
     setState(() {
       currentIndex = page;
@@ -263,34 +290,28 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
       _enableDismiss = true;
     });
     widget.onPageChanged?.call(page);
-    if (_transformationController!.value != Matrix4.identity()) {
-      _transformationController!.value = Matrix4.identity();
+    if (_transformController.value != Matrix4.identity()) {
+      _transformController.value = Matrix4.identity();
       _currentScale = 1.0;
     }
   }
 
-  void _onDragProgress(double progress) {
-    setState(() {
-      _dragProgress = progress;
-    });
-  }
-
+  // ─── close ───────────────────────────────────────────────────────────────
   void _closeWithAnimation() {
     setState(() {
       _dragProgress = 1.0;
       isDismissDrag = true;
       _enablePageView = false;
     });
-
-    if (mounted) {
-      if (widget.onCloseRequested != null) {
-        widget.onCloseRequested!.call();
-      } else {
-        Navigator.of(context).pop();
-      }
+    if (!mounted) return;
+    if (widget.onCloseRequested != null) {
+      widget.onCloseRequested!.call();
+    } else {
+      Navigator.of(context).pop();
     }
   }
 
+  // ─── build ───────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final bgOpacity = (1.0 - _dragProgress).clamp(0.0, 1.0);
@@ -300,91 +321,29 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
       child: Stack(
         children: [
           if (widget.showBackground)
-            Container(
-              color: Colors.black.withValues(alpha: bgOpacity),
-              width: double.infinity,
-              height: double.infinity,
-            ),
+            Container(color: Colors.black.withValues(alpha: bgOpacity)),
+          // InteractiveViewer：
+          // - scaleEnabled 始终为 true，避免 mid-gesture 切换让 ScaleGestureRecognizer
+          //   在 2 指落下时才追踪、错过 1 指初始位置（pinch 焦点漂移）。
+          // - panEnabled 只看 scale，不看 currentTouchPointNum，保证 pinch 过程 stable。
+          // - rest 状态的 1 指下拖由下方 _buildItem 内 GestureDetector 处理。
           InteractiveViewerBoundary(
-            controller: _transformationController,
-            boundaryWidth: MediaQuery.of(context).size.width,
+            controller: _transformController,
+            boundaryWidth: MediaQuery.sizeOf(context).width,
             onScaleChanged: _onScaleChanged,
             onLeftBoundaryHit: _onLeftBoundaryHit,
             onRightBoundaryHit: _onRightBoundaryHit,
             onNoBoundaryHit: _onNoBoundaryHit,
             maxScale: widget.maxScale,
             minScale: widget.minScale,
-            // scaleEnabled 必须始终为 true：mid-gesture 从 false → true 切换会让
-            // InteractiveViewer 的 ScaleGestureRecognizer 在 2 指落下时才开始追踪，
-            // 错过 1 指的初始位置，导致 pinch 焦点跳动。
             scaleEnabled: true,
-            // panEnabled 仅基于 scale，不基于 currentTouchPointNum，确保 pinch 过程中
-            // (currentTouchPointNum 1→2) 不会触发 mid-gesture rebuild。
-            // 至于 1 指 rest 下的下滑关闭，由下面 _buildItem 的 GestureDetector 处理。
             panEnabled:
-                !_hasExternalVerticalDrag || !_isAtRestScale(_currentScale),
+                !_hasExternalVerticalDrag || !_isAtRest(_currentScale),
             child: Listener(
-              onPointerDown: (event) {
-                currentTouchPointNum++;
-                if (currentTouchPointNum == 1) {
-                  _lastPointerPosition = event.position;
-                  _lastTranslationY =
-                      _transformationController!.value.getTranslation().y;
-                } else if (currentTouchPointNum > 1) {
-                  // 第 2 指落下：取消所有 1 指阶段已经吃下的拖动，
-                  // 让 ScaleGestureRecognizer 干净地接管 pinch。
-                  // - _externalDragActive：zoom 状态过拖产生的外部 drag。
-                  // - _externalDismissDragActive：rest 状态由 _buildItem 的
-                  //   VerticalDragGestureRecognizer 误触发的 dismiss drag；
-                  //   通过 externalVerticalDragEnd(Velocity.zero) 让 Hero
-                  //   overlay 的 _handleDragEnd 走 _resetDrag 路径，overlay 回位。
-                  _cancelExternalDragIfAny();
-                  if (_externalDismissDragActive) {
-                    _externalDismissDragActive = false;
-                    widget.externalVerticalDragEnd?.call(
-                      DragEndDetails(velocity: Velocity.zero),
-                    );
-                  }
-                  // 不再 setState 关闭 _enablePageView：mid-gesture 重建会导致
-                  // InteractiveViewer.ScaleGestureRecognizer 错过 1 指初始位置，
-                  // pinch 焦点出现漂移。PageView 在 2 指 pinch 时会自然让位给
-                  // ScaleRecognizer（多指比单指 horizontal drag 更具体）。
-                }
-              },
-              onPointerMove: (event) {
-                if (currentTouchPointNum == 1 && _hasExternalVerticalDrag) {
-                  _handleSingleFingerMove(event);
-                }
-              },
-              onPointerUp: (event) {
-                currentTouchPointNum =
-                    (currentTouchPointNum - 1).clamp(0, 10).toInt();
-                if (_externalDragActive) {
-                  widget.externalVerticalDragEnd?.call(
-                    DragEndDetails(velocity: Velocity.zero),
-                  );
-                  _externalDragActive = false;
-                }
-                if (currentTouchPointNum == 0) {
-                  _lastPointerPosition = null;
-                  _evalScaleMode();
-                } else if (currentTouchPointNum <= 1 &&
-                    _isAtRestScale(_currentScale)) {
-                  setState(() => _enablePageView = true);
-                }
-              },
-              onPointerCancel: (event) {
-                currentTouchPointNum =
-                    (currentTouchPointNum - 1).clamp(0, 10).toInt();
-                _cancelExternalDragIfAny();
-                if (currentTouchPointNum == 0) {
-                  _lastPointerPosition = null;
-                  _evalScaleMode();
-                } else if (currentTouchPointNum <= 1 &&
-                    _isAtRestScale(_currentScale)) {
-                  setState(() => _enablePageView = true);
-                }
-              },
+              onPointerDown: _onPointerDown,
+              onPointerMove: _onPointerMove,
+              onPointerUp: _onPointerEnd,
+              onPointerCancel: _onPointerEnd,
               child: CustomDismissible(
                 onDismissed: _closeWithAnimation,
                 stopDrag: currentTouchPointNum > 1,
@@ -403,28 +362,9 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
                     _dragProgress = 0;
                   });
                 },
-                onDragProgress: _onDragProgress,
+                onDragProgress: (p) => setState(() => _dragProgress = p),
                 enabled: widget.dismissEnabled && _enableDismiss,
-                child:
-                    widget.sources.length == 1 && widget.isSingle
-                        ? _buildItem(context, 0, true)
-                        : PageView.builder(
-                          onPageChanged: _onPageChanged,
-                          controller: _pageController,
-
-                          physics:
-                              _enablePageView
-                                  ? null
-                                  : const NeverScrollableScrollPhysics(),
-                          itemCount: widget.sources.length,
-                          itemBuilder: (BuildContext context, int index) {
-                            return _buildItem(
-                              context,
-                              index,
-                              index == currentIndex,
-                            );
-                          },
-                        ),
+                child: _buildPager(),
               ),
             ),
           ),
@@ -450,49 +390,123 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
     );
   }
 
+  Widget _buildPager() {
+    if (widget.sources.length == 1 && widget.isSingle) {
+      return _buildItem(context, 0, true);
+    }
+    return PageView.builder(
+      onPageChanged: _onPageChanged,
+      controller: _pageController,
+      physics: _enablePageView ? null : const NeverScrollableScrollPhysics(),
+      itemCount: widget.sources.length,
+      itemBuilder: (c, i) => _buildItem(c, i, i == currentIndex),
+    );
+  }
+
+  // ─── pointer routing ─────────────────────────────────────────────────────
+  void _onPointerDown(PointerDownEvent event) {
+    currentTouchPointNum++;
+    if (currentTouchPointNum == 1) {
+      _lastPointerPosition = event.position;
+      _lastTranslationY = _transformController.value.getTranslation().y;
+      return;
+    }
+    // 第 2 指落下：取消 1 指阶段已吃下的过拖 / dismiss drag，让 pinch 干净接管。
+    _cancelOverPanDrag();
+    _cancelDismissDrag();
+    // 不在这里 setState 关闭 _enablePageView：mid-gesture rebuild 会让
+    // ScaleGestureRecognizer 错过 1 指初始位置，pinch 焦点漂移。
+    // PageView 在 2 指 pinch 下会自然让位给 ScaleRecognizer。
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (currentTouchPointNum == 1 && _hasExternalVerticalDrag) {
+      _handleSingleFingerMove(event);
+    }
+  }
+
+  void _onPointerEnd(PointerEvent event) {
+    currentTouchPointNum =
+        (currentTouchPointNum - 1).clamp(0, 10).toInt();
+    _cancelOverPanDrag();
+    if (currentTouchPointNum == 0) {
+      _lastPointerPosition = null;
+      _evalScaleMode();
+    } else if (currentTouchPointNum <= 1 && _isAtRest(_currentScale)) {
+      setState(() => _enablePageView = true);
+    }
+  }
+
+  // ─── item ────────────────────────────────────────────────────────────────
   Widget _buildItem(BuildContext context, int index, bool isFocus) {
     final canDismissDrag =
-        _hasExternalVerticalDrag && _isAtRestScale(_currentScale);
+        _hasExternalVerticalDrag && _isAtRest(_currentScale);
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onDoubleTapDown: (TapDownDetails details) {
-        _doubleTapLocalPosition = details.localPosition;
-      },
-      onDoubleTap: onDoubleTap,
+      onDoubleTapDown: (d) => _doubleTapLocalPosition = d.localPosition,
+      onDoubleTap: _onDoubleTap,
       onTap: widget.tapToDismiss ? _closeWithAnimation : null,
+      // 包装 vertical drag 回调：用 _externalDismissDragActive 标志，
+      // 让 2 指落下时能从 _onPointerDown 里取消已经吃下的 dismiss drag。
       onVerticalDragStart: canDismissDrag
-          ? (details) {
-              // 如果 start 触发时已经是多指（少数情况下两指几乎同时落下，
-              // kTouchSlop 在两指都到位后才被突破），直接放弃，不让 pinch
-              // 被 dismiss drag 抢走。
+          ? (d) {
               if (currentTouchPointNum > 1) return;
               _externalDismissDragActive = true;
-              widget.externalVerticalDragStart?.call(details);
+              widget.externalVerticalDragStart?.call(d);
             }
           : null,
       onVerticalDragUpdate: canDismissDrag
-          ? (details) {
+          ? (d) {
               if (!_externalDismissDragActive) return;
-              widget.externalVerticalDragUpdate?.call(details);
+              widget.externalVerticalDragUpdate?.call(d);
             }
           : null,
       onVerticalDragEnd: canDismissDrag
-          ? (details) {
+          ? (d) {
               if (!_externalDismissDragActive) return;
               _externalDismissDragActive = false;
-              widget.externalVerticalDragEnd?.call(details);
+              widget.externalVerticalDragEnd?.call(d);
             }
           : null,
       child: widget.itemBuilder(context, index, isFocus),
     );
   }
 
+  // ─── double tap zoom ─────────────────────────────────────────────────────
+  /// 双击在 minScale 与 0.7×maxScale 之间切换，并以点击位置为锚点平移。
+  void _onDoubleTap() {
+    final currentScale = _transformController.value.row0.x;
+    final atMin = currentScale <= widget.minScale;
+    final targetScale = atMin ? widget.maxScale * 0.7 : widget.minScale;
+
+    final dx = targetScale == 1.0
+        ? 0.0
+        : -_doubleTapLocalPosition.dx * (targetScale - 1);
+    final dy = targetScale == 1.0
+        ? 0.0
+        : -_doubleTapLocalPosition.dy * (targetScale - 1);
+
+    final target = Matrix4.identity()
+      ..scaleByDouble(targetScale, targetScale, targetScale, 1)
+      ..setEntry(0, 3, dx)
+      ..setEntry(1, 3, dy);
+
+    _doubleTapAnimation = Matrix4Tween(
+      begin: _transformController.value,
+      end: target,
+    ).animate(CurveTween(curve: Curves.easeOut).animate(_doubleTapAnim));
+    _doubleTapAnim
+        .forward(from: 0)
+        .whenComplete(() => _onScaleChanged(targetScale));
+  }
+
+  // ─── decorations ─────────────────────────────────────────────────────────
   Widget _buildIndicator() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(widget.sources.length, (index) {
-        final active = index == currentIndex;
+      children: List.generate(widget.sources.length, (i) {
+        final active = i == currentIndex;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -511,17 +525,16 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
     return AppBar(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      title:
-          widget.isSingle
-              ? null
-              : Text(
-                '${currentIndex! + 1} / ${widget.sources.length}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
       automaticallyImplyLeading: false,
+      title: widget.isSingle
+          ? null
+          : Text(
+              '${currentIndex! + 1} / ${widget.sources.length}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
       leading: Padding(
         padding: const EdgeInsets.only(left: 8),
         child: Center(
@@ -541,52 +554,5 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
       ),
       actions: const [SizedBox(width: 8)],
     );
-  }
-
-  void onDoubleTap() {
-    Matrix4 matrix = _transformationController!.value.clone();
-    double currentScale = matrix.row0.x;
-
-    double targetScale = widget.minScale;
-
-    if (currentScale <= widget.minScale) {
-      targetScale = widget.maxScale * 0.7;
-    }
-
-    double offSetX =
-        targetScale == 1.0
-            ? 0.0
-            : -_doubleTapLocalPosition.dx * (targetScale - 1);
-    double offSetY =
-        targetScale == 1.0
-            ? 0.0
-            : -_doubleTapLocalPosition.dy * (targetScale - 1);
-
-    matrix = Matrix4.fromList([
-      targetScale,
-      matrix.row1.x,
-      matrix.row2.x,
-      matrix.row3.x,
-      matrix.row0.y,
-      targetScale,
-      matrix.row2.y,
-      matrix.row3.y,
-      matrix.row0.z,
-      matrix.row1.z,
-      targetScale,
-      matrix.row3.z,
-      offSetX,
-      offSetY,
-      matrix.row2.w,
-      matrix.row3.w,
-    ]);
-
-    _animation = Matrix4Tween(
-      begin: _transformationController!.value,
-      end: matrix,
-    ).animate(CurveTween(curve: Curves.easeOut).animate(_animationController));
-    _animationController
-        .forward(from: 0)
-        .whenComplete(() => _onScaleChanged(targetScale));
   }
 }

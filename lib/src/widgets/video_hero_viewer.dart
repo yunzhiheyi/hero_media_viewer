@@ -1,13 +1,67 @@
 library;
 
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import 'hero_overlay.dart';
-import 'interactive_gallery_viewer.dart';
+
+import '../core/image_aspect_ratio.dart';
 import '../core/media_source.dart';
 import '../models/media_item.dart';
+import 'hero_overlay.dart';
+import 'interactive_gallery_viewer.dart';
 
+// ============================================================================
+// Builder typedefs
+// ============================================================================
+
+/// 视频 item 完全自定义构建器（替换默认 [HeroVideoPlayer]）。
+typedef HeroVideoItemBuilder = Widget Function(
+  BuildContext context,
+  String videoSource,
+  ImageProvider? thumbnail,
+  bool isFocus,
+);
+
+/// 混合画廊中的视频构建器，多 [index] 参数。
+typedef HeroVideoIndexedItemBuilder = Widget Function(
+  BuildContext context,
+  String videoSource,
+  ImageProvider? thumbnail,
+  int index,
+  bool isFocus,
+);
+
+/// 混合画廊中的图片构建器。
+typedef HeroImageIndexedItemBuilder = Widget Function(
+  BuildContext context,
+  ImageProvider imageProvider,
+  int index,
+  bool isFocus,
+);
+
+/// [HeroVideoPlayer] 控件层槽位（替换默认的中央播放/暂停按钮）。
+typedef HeroVideoControlsBuilder = Widget Function(
+  BuildContext context,
+  VideoPlayerController controller,
+  bool isPlaying,
+  VoidCallback togglePlayback,
+);
+
+/// [HeroVideoPlayer] 加载态/错误态槽位。
+typedef HeroVideoStateBuilder = Widget Function(BuildContext context);
+
+// ============================================================================
+// Public APIs
+// ============================================================================
+
+/// 打开单视频 hero overlay。
+///
+/// 默认使用 [HeroVideoPlayer] 渲染（自动 init/play/dispose），可通过：
+/// - [videoBuilder]：整个 item 由调用方接管（接 BetterPlayer 等第三方播放器）。
+/// - [videoControlsBuilder] / [videoLoadingBuilder] / [videoErrorBuilder]：
+///   只换 UI 槽位，保留内置 controller 生命周期。
+/// - [foregroundBuilder]：在 overlay 之上叠加自定义层。
 void showVideoHeroOverlay({
   required BuildContext context,
   required String videoSource,
@@ -19,73 +73,60 @@ void showVideoHeroOverlay({
   HeroOverlayController? controller,
   BoxFit thumbnailFit = BoxFit.cover,
   Alignment thumbnailAlignment = Alignment.center,
-  Widget Function(
-    BuildContext context,
-    String videoSource,
-    ImageProvider? thumbnail,
-    bool isFocus,
-  )? videoBuilder,
-  Widget Function(
-    BuildContext context,
-    VideoPlayerController controller,
-    bool isPlaying,
-    VoidCallback togglePlayback,
-  )? videoControlsBuilder,
-  Widget Function(BuildContext context)? videoLoadingBuilder,
-  Widget Function(BuildContext context)? videoErrorBuilder,
+  HeroVideoItemBuilder? videoBuilder,
+  HeroVideoControlsBuilder? videoControlsBuilder,
+  HeroVideoStateBuilder? videoLoadingBuilder,
+  HeroVideoStateBuilder? videoErrorBuilder,
   HeroOverlayForegroundBuilder? foregroundBuilder,
 }) {
-  final thumbnailProvider =
-      thumbnail != null ? MediaSource.from(thumbnail) : null;
+  final thumbProvider =
+      thumbnail == null ? null : MediaSource.from(thumbnail);
 
   showHeroOverlay(
     context: context,
     startRect: startRect,
-    aspectRatio: aspectRatio ?? _rectAspectRatio(startRect),
+    aspectRatio: aspectRatio ?? rectAspectRatio(startRect),
     fullScreen: fullScreen,
     controller: controller,
     onClose: onClose,
     tapToClose: false,
     foregroundBuilder: foregroundBuilder,
-    closeBuilder:
-        thumbnailProvider != null
-            ? (context, index, progress) {
-              return Image(
-                image: thumbnailProvider,
-                fit: thumbnailFit,
-                alignment: thumbnailAlignment,
-              );
-            }
-            : null,
-    dragBuilder: (BuildContext context, HeroOverlayDragHandlers dragHandlers) {
-      return InteractiveGalleryViewer(
-        sources: [videoSource],
-        initIndex: 0,
-        isSingle: true,
-        showBackground: false,
-        showAppBar: false,
-        tapToDismiss: false,
-        dismissEnabled: false,
-        externalVerticalDragStart: dragHandlers.onStart,
-        externalVerticalDragUpdate: dragHandlers.onUpdate,
-        externalVerticalDragEnd: dragHandlers.onEnd,
-        itemBuilder: (BuildContext context, int index, bool isFocus) {
-          if (videoBuilder != null) {
-            return videoBuilder(context, videoSource, thumbnailProvider, isFocus);
-          }
-          return HeroVideoPlayer(
+    closeBuilder: thumbProvider == null
+        ? null
+        : (_, __, ___) => Image(
+              image: thumbProvider,
+              fit: thumbnailFit,
+              alignment: thumbnailAlignment,
+            ),
+    dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
+      sources: [videoSource],
+      initIndex: 0,
+      isSingle: true,
+      showBackground: false,
+      showAppBar: false,
+      tapToDismiss: false,
+      dismissEnabled: false,
+      externalVerticalDragStart: dragHandlers.onStart,
+      externalVerticalDragUpdate: dragHandlers.onUpdate,
+      externalVerticalDragEnd: dragHandlers.onEnd,
+      itemBuilder: (c, _, isFocus) =>
+          videoBuilder?.call(c, videoSource, thumbProvider, isFocus) ??
+          HeroVideoPlayer(
             videoSource: videoSource,
-            thumbnail: thumbnailProvider,
+            thumbnail: thumbProvider,
             controlsBuilder: videoControlsBuilder,
             loadingBuilder: videoLoadingBuilder,
             errorBuilder: videoErrorBuilder,
-          );
-        },
-      );
-    },
+          ),
+    ),
   );
 }
 
+/// 打开混合媒体（图片 + 视频）画廊 overlay。
+///
+/// [items] 不能为空，[initialIndex] 在 [0, items.length) 范围内。
+///
+/// 自定义槽位与单视频版本一致，外加 [imageBuilder] 用于自定义图片渲染。
 void showMediaHeroOverlay({
   required BuildContext context,
   required List<MediaItem> items,
@@ -100,33 +141,16 @@ void showMediaHeroOverlay({
   HeroOverlayController? controller,
   BoxFit thumbnailFit = BoxFit.cover,
   Alignment thumbnailAlignment = Alignment.center,
-  Widget Function(
-    BuildContext context,
-    ImageProvider imageProvider,
-    int index,
-    bool isFocus,
-  )? imageBuilder,
-  Widget Function(
-    BuildContext context,
-    String videoSource,
-    ImageProvider? thumbnail,
-    int index,
-    bool isFocus,
-  )? videoBuilder,
-  Widget Function(
-    BuildContext context,
-    VideoPlayerController controller,
-    bool isPlaying,
-    VoidCallback togglePlayback,
-  )? videoControlsBuilder,
-  Widget Function(BuildContext context)? videoLoadingBuilder,
-  Widget Function(BuildContext context)? videoErrorBuilder,
+  HeroImageIndexedItemBuilder? imageBuilder,
+  HeroVideoIndexedItemBuilder? videoBuilder,
+  HeroVideoControlsBuilder? videoControlsBuilder,
+  HeroVideoStateBuilder? videoLoadingBuilder,
+  HeroVideoStateBuilder? videoErrorBuilder,
   HeroOverlayForegroundBuilder? foregroundBuilder,
 }) {
   if (items.isEmpty) {
     throw ArgumentError.value(items, 'items', 'items must not be empty.');
   }
-
   if (initialIndex < 0 || initialIndex >= items.length) {
     throw RangeError.range(initialIndex, 0, items.length - 1, 'initialIndex');
   }
@@ -136,10 +160,9 @@ void showMediaHeroOverlay({
   showHeroOverlay(
     context: context,
     startRect: startRect,
-    aspectRatio:
-        aspectRatio ??
+    aspectRatio: aspectRatio ??
         items[initialIndex].aspectRatio ??
-        _rectAspectRatio(startRect),
+        rectAspectRatio(startRect),
     fullScreen: fullScreen,
     itemRects: itemRects,
     initialIndex: initialIndex,
@@ -152,140 +175,116 @@ void showMediaHeroOverlay({
       count: items.length,
       userForeground: foregroundBuilder,
     ),
-    closeBuilder: (context, index, progress) {
+    closeBuilder: (_, index, __) {
       final item = items[index];
-      final imageProvider =
+      final provider =
           item.type == MediaType.image ? item.imageProvider : item.thumbnail;
-
-      if (imageProvider == null) {
-        return const ColoredBox(color: Colors.black);
-      }
-
+      if (provider == null) return const ColoredBox(color: Colors.black);
       return Image(
-        image: imageProvider,
+        image: provider,
         fit: thumbnailFit,
         alignment: thumbnailAlignment,
       );
     },
-    dragBuilder: (BuildContext context, HeroOverlayDragHandlers dragHandlers) {
-      return InteractiveGalleryViewer(
-        sources: items,
-        initIndex: initialIndex,
-        enableIndicator: false,
-        showBackground: false,
-        showAppBar: false,
-        tapToDismiss: false,
-        dismissEnabled: false,
-        externalVerticalDragStart: dragHandlers.onStart,
-        externalVerticalDragUpdate: dragHandlers.onUpdate,
-        externalVerticalDragEnd: dragHandlers.onEnd,
-        onPageChanged: (index) {
-          currentIndex.value = index;
-          onPageChanged?.call(index);
-        },
-        itemBuilder: (BuildContext context, int index, bool isFocus) {
-          final item = items[index];
-          return switch (item.type) {
-            MediaType.image => imageBuilder != null
-                ? imageBuilder(
-                    context,
-                    _requiredImageProvider(item),
-                    index,
-                    isFocus,
-                  )
-                : Center(
-                    child: Image(
-                      image: _requiredImageProvider(item),
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-            MediaType.video => videoBuilder != null
-                ? videoBuilder(
-                    context,
-                    _requiredVideoPath(item),
-                    item.thumbnail,
-                    index,
-                    isFocus,
-                  )
-                : HeroVideoPlayer(
-                    videoSource: _requiredVideoPath(item),
-                    thumbnail: item.thumbnail,
-                    controlsBuilder: videoControlsBuilder,
-                    loadingBuilder: videoLoadingBuilder,
-                    errorBuilder: videoErrorBuilder,
-                  ),
-          };
-        },
-      );
-    },
+    dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
+      sources: items,
+      initIndex: initialIndex,
+      enableIndicator: false,
+      showBackground: false,
+      showAppBar: false,
+      tapToDismiss: false,
+      dismissEnabled: false,
+      externalVerticalDragStart: dragHandlers.onStart,
+      externalVerticalDragUpdate: dragHandlers.onUpdate,
+      externalVerticalDragEnd: dragHandlers.onEnd,
+      onPageChanged: (i) {
+        currentIndex.value = i;
+        onPageChanged?.call(i);
+      },
+      itemBuilder: (c, index, isFocus) {
+        final item = items[index];
+        return switch (item.type) {
+          MediaType.image => imageBuilder?.call(
+                c,
+                _requireImage(item),
+                index,
+                isFocus,
+              ) ??
+              Center(child: Image(image: _requireImage(item), fit: BoxFit.contain)),
+          MediaType.video => videoBuilder?.call(
+                c,
+                _requireVideoPath(item),
+                item.thumbnail,
+                index,
+                isFocus,
+              ) ??
+              HeroVideoPlayer(
+                videoSource: _requireVideoPath(item),
+                thumbnail: item.thumbnail,
+                controlsBuilder: videoControlsBuilder,
+                loadingBuilder: videoLoadingBuilder,
+                errorBuilder: videoErrorBuilder,
+              ),
+        };
+      },
+    ),
   );
 }
 
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/// 合并内置指示器与用户自定义 foreground。规则见 [image_gallery_viewer._mergedForeground]。
 HeroOverlayForegroundBuilder? _mergedForeground({
   required bool showIndicator,
   required int count,
   HeroOverlayForegroundBuilder? userForeground,
 }) {
-  if (!showIndicator && userForeground == null) return null;
   if (!showIndicator) return userForeground;
   if (userForeground == null) {
-    return (context, index) =>
-        HeroOverlayPageIndicator(count: count, index: index);
+    return (c, i) => HeroOverlayPageIndicator(count: count, index: i);
   }
-  return (context, index) => Stack(
-    children: [
-      HeroOverlayPageIndicator(count: count, index: index),
-      userForeground(context, index),
-    ],
-  );
+  return (c, i) => Stack(
+        children: [
+          HeroOverlayPageIndicator(count: count, index: i),
+          userForeground(c, i),
+        ],
+      );
 }
 
-double _rectAspectRatio(Rect rect) {
-  if (rect.height <= 0) {
-    return 1.0;
-  }
-  return rect.width / rect.height;
-}
-
-ImageProvider _requiredImageProvider(MediaItem item) {
-  if (item.imageProvider == null) {
+ImageProvider _requireImage(MediaItem item) {
+  final p = item.imageProvider;
+  if (p == null) {
     throw ArgumentError.value(item, 'item', 'imageProvider is required.');
   }
-  return item.imageProvider!;
+  return p;
 }
 
-String _requiredVideoPath(MediaItem item) {
-  if (item.videoPath == null || item.videoPath!.isEmpty) {
+String _requireVideoPath(MediaItem item) {
+  final p = item.videoPath;
+  if (p == null || p.isEmpty) {
     throw ArgumentError.value(item, 'item', 'videoPath is required.');
   }
-  return item.videoPath!;
+  return p;
 }
 
-/// 默认的视频播放器组件，可通过 [controlsBuilder] / [loadingBuilder] / [errorBuilder]
-/// 槽位 builder 自定义 UI；整库托管 VideoPlayerController 的初始化、释放和点击播放。
+// ============================================================================
+// HeroVideoPlayer
+// ============================================================================
+
+/// 默认的 hero overlay 视频播放器组件。
 ///
-/// 若想完全替换播放器（例如换成 BetterPlayer），请使用 showXxxOverlay 的 `videoBuilder`
-/// 参数自行返回 widget。
+/// 自动管理 [VideoPlayerController] 的初始化、播放和释放；点击切换播放/暂停，
+/// 暂停时居中显示半透明播放按钮。
+///
+/// 自定义 UI 时，**优先**用槽位 builder 而不是替换整个 widget：
+/// - [controlsBuilder]：替换中央播放按钮（拿到 controller 自己渲染进度条等）。
+/// - [loadingBuilder] / [errorBuilder]：替换加载态 / 错误态 UI。
+///
+/// 想完全换播放器内核（BetterPlayer、Chewie 等）请使用 [showVideoHeroOverlay] /
+/// [showMediaHeroOverlay] 的 `videoBuilder` 参数，自行负责生命周期。
 class HeroVideoPlayer extends StatefulWidget {
-  final String videoSource;
-  final ImageProvider? thumbnail;
-
-  /// 自定义控件层（播放/暂停按钮、进度条等）。
-  /// 接收当前 controller、播放状态和切换播放的回调。
-  final Widget Function(
-    BuildContext context,
-    VideoPlayerController controller,
-    bool isPlaying,
-    VoidCallback togglePlayback,
-  )?
-  controlsBuilder;
-
-  /// 自定义加载态 UI。
-  final Widget Function(BuildContext context)? loadingBuilder;
-
-  /// 自定义错误态 UI。
-  final Widget Function(BuildContext context)? errorBuilder;
-
   const HeroVideoPlayer({
     super.key,
     required this.videoSource,
@@ -295,72 +294,85 @@ class HeroVideoPlayer extends StatefulWidget {
     this.errorBuilder,
   });
 
+  /// 视频地址：支持 http(s)://、file://、绝对路径、assets:// 或裸 asset 名。
+  final String videoSource;
+
+  /// 缩略图：未就绪时显示，与视频画面同位（BoxFit.contain）。
+  final ImageProvider? thumbnail;
+
+  /// 控件层自定义构建器（如自定义播放按钮 / 进度条）。
+  final HeroVideoControlsBuilder? controlsBuilder;
+
+  /// 加载态 UI 自定义构建器。
+  final HeroVideoStateBuilder? loadingBuilder;
+
+  /// 错误态 UI 自定义构建器。
+  final HeroVideoStateBuilder? errorBuilder;
+
   @override
   State<HeroVideoPlayer> createState() => _HeroVideoPlayerState();
 }
 
 class _HeroVideoPlayerState extends State<HeroVideoPlayer> {
-  VideoPlayerController? _videoController;
-  bool _videoReady = false;
+  VideoPlayerController? _controller;
+  bool _ready = false;
   bool _isPlaying = false;
   bool _hasError = false;
 
   @override
   void initState() {
     super.initState();
-    _initVideo();
-  }
-
-  void _initVideo() async {
-    try {
-      if (MediaSource.isNetwork(widget.videoSource)) {
-        _videoController = VideoPlayerController.networkUrl(
-          Uri.parse(widget.videoSource),
-        );
-      } else if (MediaSource.isFile(widget.videoSource)) {
-        final path = MediaSource.toFilePath(widget.videoSource);
-        _videoController = VideoPlayerController.file(File(path));
-      } else {
-        final assetPath = widget.videoSource.replaceFirst('assets://', '');
-        _videoController = VideoPlayerController.asset(assetPath);
-      }
-
-      await _videoController!.initialize();
-
-      if (mounted) {
-        setState(() {
-          _videoReady = true;
-        });
-        _videoController!.play();
-        _isPlaying = true;
-        _videoController!.addListener(_videoListener);
-      }
-    } catch (e) {
-      debugPrint('Video init failed: $e');
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-        });
-      }
-    }
-  }
-
-  void _videoListener() {
-    if (_videoController != null && mounted) {
-      final isPlaying = _videoController!.value.isPlaying;
-      if (isPlaying != _isPlaying) {
-        setState(() {
-          _isPlaying = isPlaying;
-        });
-      }
-    }
+    _init();
   }
 
   @override
   void dispose() {
-    _videoController?.removeListener(_videoListener);
-    _videoController?.dispose();
+    _controller
+      ?..removeListener(_onPlaybackTick)
+      ..dispose();
     super.dispose();
+  }
+
+  /// 根据 [videoSource] 选择合适的 controller 构造器（网络/文件/asset），并启播。
+  Future<void> _init() async {
+    try {
+      _controller = _buildController(widget.videoSource);
+      await _controller!.initialize();
+      if (!mounted) return;
+      setState(() => _ready = true);
+      _controller!
+        ..addListener(_onPlaybackTick)
+        ..play();
+      _isPlaying = true;
+    } catch (e) {
+      debugPrint('HeroVideoPlayer init failed: $e');
+      if (mounted) setState(() => _hasError = true);
+    }
+  }
+
+  VideoPlayerController _buildController(String source) {
+    if (MediaSource.isNetwork(source)) {
+      return VideoPlayerController.networkUrl(Uri.parse(source));
+    }
+    if (MediaSource.isFile(source)) {
+      return VideoPlayerController.file(File(MediaSource.toFilePath(source)));
+    }
+    final assetPath =
+        source.startsWith('assets://') ? source.substring(9) : source;
+    return VideoPlayerController.asset(assetPath);
+  }
+
+  /// controller 监听：当 isPlaying 真实变化时同步 UI 状态。
+  void _onPlaybackTick() {
+    if (!mounted || _controller == null) return;
+    final playing = _controller!.value.isPlaying;
+    if (playing != _isPlaying) setState(() => _isPlaying = playing);
+  }
+
+  void _togglePlayback() {
+    final c = _controller;
+    if (c == null || !_ready) return;
+    c.value.isPlaying ? c.pause() : c.play();
   }
 
   @override
@@ -374,69 +386,60 @@ class _HeroVideoPlayerState extends State<HeroVideoPlayer> {
             Positioned.fill(
               child: Image(image: widget.thumbnail!, fit: BoxFit.contain),
             ),
-          if (_videoReady)
+          if (_ready)
             Center(
               child: AspectRatio(
-                aspectRatio: _videoController!.value.aspectRatio,
-                child: VideoPlayer(_videoController!),
+                aspectRatio: _controller!.value.aspectRatio,
+                child: VideoPlayer(_controller!),
               ),
             ),
-          if (!_videoReady && !_hasError)
-            widget.loadingBuilder?.call(context) ??
-                const Center(
-                  child: CircularProgressIndicator(color: Colors.white),
-                ),
-          if (_hasError)
-            widget.errorBuilder?.call(context) ??
-                const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.error_outline, color: Colors.white, size: 48),
-                      SizedBox(height: 8),
-                      Text('视频加载失败', style: TextStyle(color: Colors.white)),
-                    ],
-                  ),
-                ),
-          if (_videoReady)
+          if (!_ready && !_hasError)
+            widget.loadingBuilder?.call(context) ?? _defaultLoading(),
+          if (_hasError) widget.errorBuilder?.call(context) ?? _defaultError(),
+          if (_ready)
             widget.controlsBuilder?.call(
                   context,
-                  _videoController!,
+                  _controller!,
                   _isPlaying,
                   _togglePlayback,
                 ) ??
-                Center(
-                  child: AnimatedOpacity(
-                    opacity: _isPlaying ? 0.0 : 1.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.black45,
-                        borderRadius: BorderRadius.circular(28),
-                      ),
-                      child: const Icon(
-                        Icons.play_arrow,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                    ),
-                  ),
-                ),
+                _defaultControls(),
         ],
       ),
     );
   }
 
-  void _togglePlayback() {
-    if (_videoController == null || !_videoReady) {
-      return;
-    }
+  Widget _defaultLoading() => const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      );
 
-    if (_videoController!.value.isPlaying) {
-      _videoController!.pause();
-    } else {
-      _videoController!.play();
-    }
-  }
+  Widget _defaultError() => const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, color: Colors.white, size: 48),
+            SizedBox(height: 8),
+            Text('视频加载失败', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+      );
+
+  Widget _defaultControls() => Center(
+        child: AnimatedOpacity(
+          opacity: _isPlaying ? 0.0 : 1.0,
+          duration: const Duration(milliseconds: 200),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.black45,
+              borderRadius: BorderRadius.circular(28),
+            ),
+            child: const Icon(
+              Icons.play_arrow,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+        ),
+      );
 }

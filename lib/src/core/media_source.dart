@@ -1,139 +1,79 @@
-import 'dart:typed_data';
 import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
-/// 媒体资源类型
+/// 媒体资源类型枚举。
 enum MediaSourceType { network, asset, file, memory }
 
-/// 媒体资源工具类
+/// 媒体资源解析工具。
 ///
-/// 根据资源地址自动识别类型并返回对应的 ImageProvider
-///
-/// 支持的资源格式：
-/// - 网络资源：http:// 或 https:// 开头
-/// - Asset 资源：assets:// 开头
-/// - 本地文件：file:// 开头或绝对路径
-/// - 内存资源：直接传入 Uint8List
+/// 根据资源字符串前缀或运行时类型自动判定来源类型，并构造对应的
+/// [ImageProvider]。支持的 source 形式：
+/// - 网络：`http://` / `https://` 开头的 String
+/// - Asset：`assets://` 开头的 String（前缀会被剥离）
+/// - 文件：`file://` URI、绝对路径（`/...`）、Windows 路径（`C:\...`）
+/// - 内存：直接传入 [Uint8List]
+/// - 直通：已是 [ImageProvider] 时原样返回
 class MediaSource {
-  /// 判断是否为 Windows 路径
-  static bool _isWindowsPath(String path) {
-    return RegExp(r'^[a-zA-Z]:[/\\]').hasMatch(path);
-  }
+  const MediaSource._();
 
-  /// 根据资源创建 ImageProvider
+  /// 由 source 构造 [ImageProvider]。
   ///
-  /// [source] 支持：
-  /// - String: URL/Asset路径/文件路径
-  /// - Uint8List: 内存数据
-  /// - ImageProvider: 直接返回
+  /// source 类型不被支持时抛出 [ArgumentError]。
   static ImageProvider from(dynamic source) {
-    if (source is ImageProvider) {
-      return source;
-    }
-
-    if (source is Uint8List) {
-      return MemoryImage(source);
-    }
-
+    if (source is ImageProvider) return source;
+    if (source is Uint8List) return MemoryImage(source);
     if (source is String) {
-      final path = source;
-
-      // 网络资源
-      if (path.startsWith('http://') || path.startsWith('https://')) {
-        return NetworkImage(path);
+      if (_isNetwork(source)) return NetworkImage(source);
+      if (source.startsWith('assets://')) {
+        return AssetImage(source.substring('assets://'.length));
       }
-
-      // Asset 资源
-      if (path.startsWith('assets://')) {
-        return AssetImage(path.replaceFirst('assets://', ''));
+      if (source.startsWith('file://')) {
+        return FileImage(File(Uri.parse(source).toFilePath()));
       }
-
-      // 文件 URI
-      if (path.startsWith('file://')) {
-        return FileImage(File(Uri.parse(path).toFilePath()));
-      }
-
-      // 本地文件路径
-      if (path.startsWith('/') || _isWindowsPath(path)) {
-        return FileImage(File(path));
-      }
-
-      // 默认当作 asset
-      return AssetImage(path);
+      if (_isLocalPath(source)) return FileImage(File(source));
+      // 兜底当作 asset（无前缀）。
+      return AssetImage(source);
     }
-
     throw ArgumentError('Unsupported media source type: ${source.runtimeType}');
   }
 
-  /// 获取资源类型
+  /// 返回 source 对应的 [MediaSourceType]。
   static MediaSourceType typeOf(dynamic source) {
-    if (source is Uint8List) {
-      return MediaSourceType.memory;
-    }
-
+    if (source is Uint8List) return MediaSourceType.memory;
     if (source is String) {
-      final path = source;
-
-      if (path.startsWith('http://') || path.startsWith('https://')) {
-        return MediaSourceType.network;
-      }
-
-      if (path.startsWith('assets://')) {
-        return MediaSourceType.asset;
-      }
-
-      if (path.startsWith('file://') ||
-          path.startsWith('/') ||
-          _isWindowsPath(path)) {
+      if (_isNetwork(source)) return MediaSourceType.network;
+      if (source.startsWith('assets://')) return MediaSourceType.asset;
+      if (source.startsWith('file://') || _isLocalPath(source)) {
         return MediaSourceType.file;
       }
-
       return MediaSourceType.asset;
     }
-
     return MediaSourceType.network;
   }
 
-  /// 判断是否为网络资源
-  static bool isNetwork(dynamic source) {
-    if (source is String) {
-      return source.startsWith('http://') || source.startsWith('https://');
-    }
-    return false;
-  }
+  /// 是否为网络资源（http/https）。
+  static bool isNetwork(dynamic source) =>
+      source is String && _isNetwork(source);
 
-  /// 判断是否为本地文件
-  static bool isFile(dynamic source) {
-    if (source is String) {
-      return source.startsWith('file://') ||
-          source.startsWith('/') ||
-          _isWindowsPath(source);
-    }
-    return false;
-  }
+  /// 是否为本地文件资源（file:// 或绝对路径）。
+  static bool isFile(dynamic source) =>
+      source is String &&
+      (source.startsWith('file://') || _isLocalPath(source));
 
-  /// 判断是否为内存资源
-  static bool isMemory(dynamic source) {
-    return source is Uint8List;
-  }
+  /// 是否为内存资源（[Uint8List]）。
+  static bool isMemory(dynamic source) => source is Uint8List;
 
-  /// 获取视频源路径
+  /// 把 file:// URI 还原成本地路径；其它字符串原样返回。
   ///
-  /// 如果是 file:// URI，转换为文件路径
-  /// 否则直接返回原路径（网络 URL 或本地路径）
-  static String toFilePath(String source) {
-    if (source.startsWith('file://')) {
-      return Uri.parse(source).toFilePath();
-    }
-    return source;
-  }
-}
+  /// 视频播放器需要的是文件路径而非 URI，这里做一次归一化。
+  static String toFilePath(String source) =>
+      source.startsWith('file://') ? Uri.parse(source).toFilePath() : source;
 
-/// 向后兼容的顶层函数
-ImageProvider createImageProvider(dynamic source) => MediaSource.from(source);
-MediaSourceType getMediaSourceType(dynamic source) =>
-    MediaSource.typeOf(source);
-bool isNetworkSource(dynamic source) => MediaSource.isNetwork(source);
-bool isFileSource(dynamic source) => MediaSource.isFile(source);
-bool isMemorySource(dynamic source) => MediaSource.isMemory(source);
-String getVideoSourcePath(String source) => MediaSource.toFilePath(source);
+  static bool _isNetwork(String s) =>
+      s.startsWith('http://') || s.startsWith('https://');
+
+  static bool _isLocalPath(String s) =>
+      s.startsWith('/') || RegExp(r'^[a-zA-Z]:[/\\]').hasMatch(s);
+}
