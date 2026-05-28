@@ -1136,22 +1136,52 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
     return Curves.easeOutCubic.transform((value - start) / (end - start));
   }
 
-  /// 关闭过程中叠加 closeBuilder 缩略图（非 sharedElement 模式）。
+  /// 打开 / 关闭过程中用 openBuilder / closeBuilder 在内容之上做交叉淡入淡出，
+  /// 让 overlay 的 BoxFit.contain 渲染与缩略图（通常 BoxFit.cover）之间无缝过渡。
+  /// 没传对应 builder 时直接显示 child，没有 preview 层。
   Widget _buildOverlayContent(BuildContext context, Widget child) {
-    if (!_isClosing || _closeStartRect == null || widget.closeBuilder == null) {
-      return child;
+    // 关闭：child 淡出 + closeBuilder 淡入。
+    if (_isClosing &&
+        _closeStartRect != null &&
+        widget.closeBuilder != null) {
+      final progress = _closeAnimValue.clamp(0.0, 1.0);
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Opacity(opacity: 1.0 - progress, child: child),
+          Opacity(
+            opacity: progress,
+            child: widget.closeBuilder!(context, _currentIndex, progress),
+          ),
+        ],
+      );
     }
-    final progress = _closeAnimValue.clamp(0.0, 1.0);
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Opacity(opacity: 1.0 - progress, child: child),
-        Opacity(
-          opacity: progress,
-          child: widget.closeBuilder!(context, _currentIndex, progress),
-        ),
-      ],
-    );
+
+    // 打开：openBuilder 在 child 之上，随展开进度淡出。
+    // 让 t=0 那一帧呈现的还是"缩略图样式"，避免从 cover 突变成 contain 的闪烁。
+    if (!_isClosing &&
+        !_isResetting &&
+        widget.openBuilder != null &&
+        _expandController != null) {
+      final t = _expandController!.value.clamp(0.0, 1.0);
+      final previewOpacity = (1.0 - _interval(t, 0.32, 0.70)).clamp(0.0, 1.0);
+      if (previewOpacity > 0 && t < 1.0) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            child,
+            IgnorePointer(
+              child: Opacity(
+                opacity: previewOpacity,
+                child: widget.openBuilder!(context, _currentIndex, t),
+              ),
+            ),
+          ],
+        );
+      }
+    }
+
+    return child;
   }
 }
 

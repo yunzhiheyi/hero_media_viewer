@@ -91,6 +91,14 @@ void showVideoHeroOverlay({
     onClose: onClose,
     tapToClose: false,
     foregroundBuilder: foregroundBuilder,
+    // 打开 / 关闭复用同一份缩略图预览，避免 t=0 那一帧从 cover 突变成 contain。
+    openBuilder: thumbProvider == null
+        ? null
+        : (_, __, ___) => Image(
+              image: thumbProvider,
+              fit: thumbnailFit,
+              alignment: thumbnailAlignment,
+            ),
     closeBuilder: thumbProvider == null
         ? null
         : (_, __, ___) => Image(
@@ -175,17 +183,18 @@ void showMediaHeroOverlay({
       count: items.length,
       userForeground: foregroundBuilder,
     ),
-    closeBuilder: (_, index, __) {
-      final item = items[index];
-      final provider =
-          item.type == MediaType.image ? item.imageProvider : item.thumbnail;
-      if (provider == null) return const ColoredBox(color: Colors.black);
-      return Image(
-        image: provider,
-        fit: thumbnailFit,
-        alignment: thumbnailAlignment,
-      );
-    },
+    // 打开 / 关闭复用同一份缩略图预览（图片用 imageProvider，视频用 thumbnail），
+    // 避免 t=0 那一帧从 cover 突变成 contain 造成尺寸闪烁。
+    openBuilder: (_, index, __) => _mediaPreview(
+      items[index],
+      thumbnailFit,
+      thumbnailAlignment,
+    ),
+    closeBuilder: (_, index, __) => _mediaPreview(
+      items[index],
+      thumbnailFit,
+      thumbnailAlignment,
+    ),
     dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
       sources: items,
       initIndex: initialIndex,
@@ -251,6 +260,15 @@ HeroOverlayForegroundBuilder? _mergedForeground({
           userForeground(c, i),
         ],
       );
+}
+
+/// 把一个 [MediaItem] 渲染成 hero overlay 打开 / 关闭动画用的缩略图预览。
+/// 图片用 [MediaItem.imageProvider]，视频用 [MediaItem.thumbnail]；都没有时给一块黑。
+Widget _mediaPreview(MediaItem item, BoxFit fit, Alignment alignment) {
+  final provider =
+      item.type == MediaType.image ? item.imageProvider : item.thumbnail;
+  if (provider == null) return const ColoredBox(color: Colors.black);
+  return Image(image: provider, fit: fit, alignment: alignment);
 }
 
 ImageProvider _requireImage(MediaItem item) {

@@ -47,6 +47,13 @@ void showImageHeroOverlay({
       controller: overlayController,
       onClose: onClose,
       foregroundBuilder: foregroundBuilder,
+      // 打开与关闭使用同一份缩略图预览：避免 t=0 时从 thumbnailFit（通常 cover）
+      // 突然切到 overlay 的 BoxFit.contain，造成尺寸闪烁。
+      openBuilder: (_, __, ___) => Image(
+        image: imageProvider,
+        fit: thumbnailFit,
+        alignment: thumbnailAlignment,
+      ),
       closeBuilder: (_, __, ___) => Image(
         image: imageProvider,
         fit: thumbnailFit,

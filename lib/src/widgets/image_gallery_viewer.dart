@@ -64,6 +64,13 @@ void showImageGalleryOverlay({
         count: providers.length,
         userForeground: foregroundBuilder,
       ),
+      // openBuilder / closeBuilder 用同一套缩略图渲染：避免 t=0 那一帧从 cover
+      // 突变成 contain 引起尺寸闪烁。
+      openBuilder: (_, index, __) => Image(
+        image: providers[index],
+        fit: thumbnailFit,
+        alignment: thumbnailAlignment,
+      ),
       closeBuilder: (_, index, __) => Image(
         image: providers[index],
         fit: thumbnailFit,
