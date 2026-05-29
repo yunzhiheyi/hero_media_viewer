@@ -1,5 +1,6 @@
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -83,34 +84,43 @@ void showVideoHeroOverlay({
   final thumbProvider =
       thumbnail == null ? null : MediaSource.from(thumbnail);
 
+  final videoAspect = aspectRatio ?? rectAspectRatio(startRect);
+  final screenSize = MediaQuery.sizeOf(context);
+  final startSize = startRect.size;
+  final endSize = fullScreen
+      ? screenSize
+      : _containedTargetSize(videoAspect, screenSize);
+
   showHeroOverlay(
     context: context,
     startRect: startRect,
-    aspectRatio: aspectRatio ?? rectAspectRatio(startRect),
+    aspectRatio: videoAspect,
     fullScreen: fullScreen,
     controller: controller,
     onClose: onClose,
     tapToClose: false,
     foregroundBuilder: foregroundBuilder,
-    // 打开 / 关闭都用 AnimatedFitImage（cover ↔ contain 平滑过渡），消除 t=0 突变。
-    // 缩略图本身没有显式宽高比，沿用 startRect 的宽高比兜底。
     openBuilder: thumbProvider == null
         ? null
         : (_, __, progress) => AnimatedFitImage(
               image: thumbProvider,
-              aspectRatio: aspectRatio ?? rectAspectRatio(startRect),
+              aspectRatio: videoAspect,
               progress: progress,
               startFit: thumbnailFit,
               endFit: BoxFit.contain,
+              startContainerSize: startSize,
+              endContainerSize: endSize,
             ),
     closeBuilder: thumbProvider == null
         ? null
         : (_, __, progress) => AnimatedFitImage(
               image: thumbProvider,
-              aspectRatio: aspectRatio ?? rectAspectRatio(startRect),
+              aspectRatio: videoAspect,
               progress: 1.0 - progress,
               startFit: thumbnailFit,
               endFit: BoxFit.contain,
+              startContainerSize: startSize,
+              endContainerSize: endSize,
             ),
     dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
       sources: [videoSource],
@@ -171,12 +181,38 @@ void showMediaHeroOverlay({
 
   final currentIndex = ValueNotifier<int>(initialIndex);
 
+  // 每个 item 的宽高比；图片类型后台异步解析，视频类型用 item.aspectRatio 或兜底。
+  final resolvedRatios = <int, double>{};
+  final fallbackRatio = aspectRatio ??
+      items[initialIndex].aspectRatio ??
+      rectAspectRatio(startRect);
+
+  for (var i = 0; i < items.length; i++) {
+    final item = items[i];
+    if (item.aspectRatio != null) {
+      resolvedRatios[i] = item.aspectRatio!;
+      continue;
+    }
+    final provider = item.type == MediaType.image
+        ? item.imageProvider
+        : item.thumbnail;
+    if (provider != null) {
+      unawaited(resolveImageAspectRatio(provider).then((r) {
+        if (r != null) resolvedRatios[i] = r;
+      }));
+    }
+  }
+
+  final screenSize = MediaQuery.sizeOf(context);
+  final mixedStartSize = startRect.size;
+  final mixedEndSize = fullScreen
+      ? screenSize
+      : _containedTargetSize(fallbackRatio, screenSize);
+
   showHeroOverlay(
     context: context,
     startRect: startRect,
-    aspectRatio: aspectRatio ??
-        items[initialIndex].aspectRatio ??
-        rectAspectRatio(startRect),
+    aspectRatio: fallbackRatio,
     fullScreen: fullScreen,
     itemRects: itemRects,
     initialIndex: initialIndex,
@@ -184,27 +220,29 @@ void showMediaHeroOverlay({
     controller: controller,
     onClose: onClose,
     tapToClose: false,
+    itemAspectRatios: resolvedRatios,
     foregroundBuilder: _mergedForeground(
       showIndicator: showIndicator && items.length > 1,
       count: items.length,
       userForeground: foregroundBuilder,
     ),
-    // 打开 / 关闭都用 AnimatedFitImage（cover ↔ contain 平滑过渡）。
-    // 图片用 imageProvider 真实宽高比；视频用 thumbnail，宽高比沿用 item.aspectRatio
-    // 或 startRect 兜底。
     openBuilder: (_, index, progress) => _mediaPreview(
       items[index],
       thumbnailFit,
       thumbnailAlignment,
       progress,
-      startRect,
+      resolvedRatios[index] ?? fallbackRatio,
+      mixedStartSize,
+      mixedEndSize,
     ),
     closeBuilder: (_, index, progress) => _mediaPreview(
       items[index],
       thumbnailFit,
       thumbnailAlignment,
       1.0 - progress,
-      startRect,
+      resolvedRatios[index] ?? fallbackRatio,
+      mixedStartSize,
+      mixedEndSize,
     ),
     dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
       sources: items,
@@ -282,18 +320,33 @@ Widget _mediaPreview(
   BoxFit startFit,
   Alignment alignment,
   double progress,
-  Rect startRect,
+  double aspectRatio,
+  Size startContainerSize,
+  Size endContainerSize,
 ) {
   final provider =
       item.type == MediaType.image ? item.imageProvider : item.thumbnail;
   if (provider == null) return const ColoredBox(color: Colors.black);
   return AnimatedFitImage(
     image: provider,
-    aspectRatio: item.aspectRatio ?? rectAspectRatio(startRect),
+    aspectRatio: aspectRatio,
     progress: progress,
     startFit: startFit,
     endFit: BoxFit.contain,
+    startContainerSize: startContainerSize,
+    endContainerSize: endContainerSize,
   );
+}
+
+/// 非 fullScreen 模式下，按宽高比居中放大并 fit 进屏幕的目标尺寸。
+Size _containedTargetSize(double aspectRatio, Size screen) {
+  var w = screen.width;
+  var h = w / aspectRatio;
+  if (h > screen.height) {
+    h = screen.height;
+    w = h * aspectRatio;
+  }
+  return Size(w, h);
 }
 
 ImageProvider _requireImage(MediaItem item) {

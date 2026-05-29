@@ -49,39 +49,49 @@ void showImageGalleryOverlay({
       imageSources.map((s) => MediaSource.from(s)).toList(growable: false);
   final currentIndex = ValueNotifier<int>(initialIndex);
 
-  void open(double resolvedAspectRatio) {
+  // 每张图的真实宽高比；后台并发解析，closeBuilder / 翻页 target rect 用到。
+  final resolvedRatios = <int, double>{};
+
+  void open(double initialAspectRatio) {
+    final screenSize = MediaQuery.sizeOf(context);
+    final startSize = startRect.size;
+    final endSize = fullScreen
+        ? screenSize
+        : _containedTargetSize(initialAspectRatio, screenSize);
+
     showHeroOverlay(
       context: context,
       startRect: startRect,
-      aspectRatio: resolvedAspectRatio,
+      aspectRatio: initialAspectRatio,
       fullScreen: fullScreen,
       itemRects: itemRects,
       initialIndex: initialIndex,
       currentIndexListenable: currentIndex,
       controller: controller,
       onClose: onClose,
+      itemAspectRatios: resolvedRatios,
       foregroundBuilder: _mergedForeground(
         showIndicator: showIndicator && providers.length > 1,
         count: providers.length,
         userForeground: foregroundBuilder,
       ),
-      // 打开 / 关闭使用 AnimatedFitImage，按当前图片宽高比平滑插值 cover ↔ contain，
-      // 避免缩略图 fit 与 overlay 内部 BoxFit.contain 之间的尺寸跳变。
-      // 翻页过去再展开的情况下，沿用初始展开时解析到的 resolvedAspectRatio 作为兜底
-      // （openBuilder 仅在 expand 动画过程中可见，普通切页时不参与渲染）。
       openBuilder: (_, index, progress) => AnimatedFitImage(
         image: providers[index],
-        aspectRatio: resolvedAspectRatio,
+        aspectRatio: resolvedRatios[index] ?? initialAspectRatio,
         progress: progress,
         startFit: thumbnailFit,
         endFit: BoxFit.contain,
+        startContainerSize: startSize,
+        endContainerSize: endSize,
       ),
       closeBuilder: (_, index, progress) => AnimatedFitImage(
         image: providers[index],
-        aspectRatio: resolvedAspectRatio,
+        aspectRatio: resolvedRatios[index] ?? initialAspectRatio,
         progress: 1.0 - progress,
         startFit: thumbnailFit,
         endFit: BoxFit.contain,
+        startContainerSize: startSize,
+        endContainerSize: endSize,
       ),
       dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
         sources: providers,
@@ -106,14 +116,42 @@ void showImageGalleryOverlay({
   }
 
   if (aspectRatio != null) {
+    resolvedRatios[initialIndex] = aspectRatio;
     open(aspectRatio);
+    // 后台解析其余图片
+    for (var i = 0; i < providers.length; i++) {
+      if (i == initialIndex) continue;
+      unawaited(resolveImageAspectRatio(providers[i]).then((r) {
+        if (r != null) resolvedRatios[i] = r;
+      }));
+    }
     return;
   }
 
   unawaited(resolveImageAspectRatio(providers[initialIndex]).then((resolved) {
     if (!context.mounted) return;
-    open(resolved ?? rectAspectRatio(startRect));
+    final initialRatio = resolved ?? rectAspectRatio(startRect);
+    resolvedRatios[initialIndex] = initialRatio;
+    // 后台解析其余图片
+    for (var i = 0; i < providers.length; i++) {
+      if (i == initialIndex) continue;
+      unawaited(resolveImageAspectRatio(providers[i]).then((r) {
+        if (r != null) resolvedRatios[i] = r;
+      }));
+    }
+    open(initialRatio);
   }));
+}
+
+/// 非 fullScreen 模式下，按宽高比居中放大并 fit 进屏幕的目标尺寸。
+Size _containedTargetSize(double aspectRatio, Size screen) {
+  var w = screen.width;
+  var h = w / aspectRatio;
+  if (h > screen.height) {
+    h = screen.height;
+    w = h * aspectRatio;
+  }
+  return Size(w, h);
 }
 
 /// 合并"内置指示器"与"用户 foregroundBuilder"：

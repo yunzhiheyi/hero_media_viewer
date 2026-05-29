@@ -40,6 +40,12 @@ void showImageHeroOverlay({
   final overlayController = controller ?? HeroOverlayController();
 
   void open(double resolvedAspectRatio) {
+    final screenSize = MediaQuery.sizeOf(context);
+    final startSize = startRect.size;
+    final endSize = fullScreen
+        ? screenSize
+        : _containedTargetSize(resolvedAspectRatio, screenSize);
+
     showHeroOverlay(
       context: context,
       startRect: startRect,
@@ -48,15 +54,14 @@ void showImageHeroOverlay({
       controller: overlayController,
       onClose: onClose,
       foregroundBuilder: foregroundBuilder,
-      // 打开方向使用 AnimatedFitImage，按图片真实宽高比平滑插值 cover → contain，
-      // 避免任意 t 上 preview（cover 渲染）和 child（contain 渲染）大小不一致
-      // 引起的闪动。关闭方向反过来从 contain → cover。
       openBuilder: (_, __, progress) => AnimatedFitImage(
         image: imageProvider,
         aspectRatio: resolvedAspectRatio,
         progress: progress,
         startFit: thumbnailFit,
         endFit: BoxFit.contain,
+        startContainerSize: startSize,
+        endContainerSize: endSize,
       ),
       closeBuilder: (_, __, progress) => AnimatedFitImage(
         image: imageProvider,
@@ -64,6 +69,8 @@ void showImageHeroOverlay({
         progress: 1.0 - progress,
         startFit: thumbnailFit,
         endFit: BoxFit.contain,
+        startContainerSize: startSize,
+        endContainerSize: endSize,
       ),
       dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
         sources: [imageProvider],
@@ -88,9 +95,20 @@ void showImageHeroOverlay({
     return;
   }
 
-  // 异步解析真实宽高比，兜底用缩略图矩形的宽高比。
   unawaited(resolveImageAspectRatio(imageProvider).then((resolved) {
     if (!context.mounted) return;
     open(resolved ?? rectAspectRatio(startRect));
   }));
+}
+
+/// 非 fullScreen 模式下，按宽高比居中放大并 fit 进屏幕的目标尺寸。
+/// 与 [_HeroOverlayViewState._calculateTargetRect] 逻辑一致。
+Size _containedTargetSize(double aspectRatio, Size screen) {
+  var w = screen.width;
+  var h = w / aspectRatio;
+  if (h > screen.height) {
+    h = screen.height;
+    w = h * aspectRatio;
+  }
+  return Size(w, h);
 }

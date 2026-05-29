@@ -96,11 +96,11 @@ class DemoHomePage extends StatelessWidget {
 }
 
 const imageUrls = [
-  'https://cdn.resste.com/upload/0b1613a9-466f-4f46-8cf9-dbc1ad36a37c.jpg~watermark',
-  'https://cdn.resste.com/upload/3c9adc1d-b51e-4159-81cb-6fdf8b23184e.jpg~watermark',
-  'https://cdn.resste.com/upload/e0fc96fe-9766-4317-bf8a-c5802fc08bee.jpg~watermark',
-  'https://cdn.resste.com/upload/b6bef0aa-11ad-4bc8-be86-2bd877aaa757.jpg~watermark',
-  'https://housebell-brighton.mypinata.cloud/ipfs/QmefruTcb6gT2b1JNYgvY2WvBhxtpwLbF1NUzkxTxpEtpC',
+  'https://cdn.resste.com/upload/0b1613a9-466f-4f46-8cf9-dbc1ad36a37c.jpg~watermark', // 600x600 (1:1)
+  'https://housebell-brighton.mypinata.cloud/ipfs/QmefruTcb6gT2b1JNYgvY2WvBhxtpwLbF1NUzkxTxpEtpC', // 1920x1080 (16:9)
+  'https://cdn.resste.com/upload/3c9adc1d-b51e-4159-81cb-6fdf8b23184e.jpg~watermark', // 600x600 (1:1)
+  'https://cdn.resste.com/upload/e0fc96fe-9766-4317-bf8a-c5802fc08bee.jpg~watermark', // 600x600 (1:1)
+  'https://cdn.resste.com/upload/b6bef0aa-11ad-4bc8-be86-2bd877aaa757.jpg~watermark', // 600x600 (1:1)
 ];
 
 const videoUrl =

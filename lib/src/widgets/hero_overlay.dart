@@ -197,6 +197,7 @@ void showHeroOverlay({
   ValueListenable<int>? currentIndexListenable,
   void Function(int index)? onIndexChanged,
   void Function(bool isDragging)? onDragStateChanged,
+  Map<int, double>? itemAspectRatios,
   bool tapToClose = true,
   bool dragToClose = true,
   bool showBackdrop = true,
@@ -239,6 +240,7 @@ void showHeroOverlay({
       initialIndex: initialIndex,
       currentIndexListenable: currentIndexListenable,
       onIndexChanged: onIndexChanged,
+      itemAspectRatios: itemAspectRatios,
       tapToClose: tapToClose,
       dragToClose: dragToClose,
       showBackdrop: showBackdrop,
@@ -369,6 +371,7 @@ class _HeroOverlayView extends StatefulWidget {
     this.currentIndexListenable,
     this.onIndexChanged,
     this.onDragStateChanged,
+    this.itemAspectRatios,
     this.tapToClose = true,
     this.dragToClose = true,
     this.showBackdrop = true,
@@ -397,6 +400,7 @@ class _HeroOverlayView extends StatefulWidget {
   final ValueListenable<int>? currentIndexListenable;
   final void Function(int index)? onIndexChanged;
   final void Function(bool isDragging)? onDragStateChanged;
+  final Map<int, double>? itemAspectRatios;
   final bool tapToClose;
   final bool dragToClose;
   final bool showBackdrop;
@@ -517,12 +521,20 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
   }
 
   /// 外部通知 index 变化（如 PageView 翻页）：更新当前索引 + 同步起点矩形。
+  ///
+  /// 若 [widget.itemAspectRatios] 提供了目标索引的宽高比且 overlay 不是
+  /// fullScreen 模式，同步重算 [_targetRect] 使容器适配新图片尺寸。
   void updateCurrentIndex(int index) {
     if (_currentIndex == index) return;
     setState(() {
       _currentIndex = index;
       final rect = widget.itemRects?[index];
       if (rect != null) _startRect = rect;
+
+      final newAspect = widget.itemAspectRatios?[index];
+      if (newAspect != null && !widget.fullScreen && widget.targetRect == null) {
+        _calculateTargetRect(newAspect);
+      }
     });
     widget.onIndexChanged?.call(index);
   }
