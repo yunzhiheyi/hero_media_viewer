@@ -1,6 +1,6 @@
 name: hero_media_viewer
 description: "A Flutter module for hero-style image and video preview with overlay animation."
-version: 1.0.0+1
+version: 1.0.1
 
 environment:
   sdk: ^3.7.2
