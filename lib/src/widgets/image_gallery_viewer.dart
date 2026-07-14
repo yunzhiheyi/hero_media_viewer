@@ -72,7 +72,7 @@ void showImageGalleryOverlay({
       currentIndexListenable: currentIndex,
       controller: controller,
       onClose: onClose,
-      dimBackdropOnDrag: false,
+      dimBackdropOnDrag: true,
       itemAspectRatios: resolvedRatios,
       foregroundBuilder: _mergedForeground(
         showIndicator: showIndicator && providers.length > 1,

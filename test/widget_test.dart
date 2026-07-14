@@ -68,12 +68,10 @@ void main() {
     expect(find.byIcon(Icons.close), findsNothing);
   });
 
-  testWidgets('Hero overlay can keep the page undimmed while dragging', (
+  testWidgets('Hero overlay drags media without shrinking and fades backdrop', (
     tester,
   ) async {
-    DragStartDetails? dragStart;
-    DragUpdateDetails? dragUpdate;
-
+    late HeroOverlayDragHandlers dragHandlers;
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
@@ -84,26 +82,16 @@ void main() {
                       () => showHeroOverlay(
                         context: context,
                         startRect: const Rect.fromLTWH(100, 100, 80, 80),
+                        targetRect: const Rect.fromLTWH(80, 220, 200, 120),
+                        fullScreen: false,
                         showCloseButton: false,
-                        dimBackdropOnDrag: false,
-                        builder:
-                            (_, onDragClose) => GestureDetector(
-                              onVerticalDragStart: (details) {
-                                dragStart = details;
-                              },
-                              onVerticalDragUpdate: (details) {
-                                dragUpdate = details;
-                              },
-                              onVerticalDragEnd: (details) {
-                                onDragClose?.call(
-                                  dragStart!,
-                                  dragUpdate!,
-                                  details,
-                                  false,
-                                );
-                              },
-                              child: const ColoredBox(color: Colors.black),
-                            ),
+                        dragBuilder: (_, handlers) {
+                          dragHandlers = handlers;
+                          return const SizedBox(
+                            key: ValueKey('drag-media'),
+                            child: ColoredBox(color: Colors.white),
+                          );
+                        },
                       ),
                   child: const Text('open'),
                 ),
@@ -124,10 +112,28 @@ void main() {
     }
 
     expect(backdropColor(), Colors.black);
+    final initialRect = tester.getRect(
+      find.byKey(const ValueKey('drag-media')),
+    );
 
-    await tester.drag(find.byType(ColoredBox).last, const Offset(0, 40));
+    dragHandlers.onStart(DragStartDetails(globalPosition: initialRect.center));
+    dragHandlers.onUpdate(
+      DragUpdateDetails(
+        delta: const Offset(0, 100),
+        globalPosition: initialRect.center + const Offset(0, 100),
+      ),
+    );
     await tester.pump();
 
-    expect(backdropColor(), Colors.black.withValues(alpha: 0));
+    expect(backdropColor().a, greaterThan(0));
+    expect(backdropColor().a, lessThan(Colors.black.a));
+    final draggedRect = tester.getRect(
+      find.byKey(const ValueKey('drag-media')),
+    );
+    expect(draggedRect.size, initialRect.size);
+
+    dragHandlers.onEnd(DragEndDetails());
+    await tester.pumpAndSettle();
+    expect(backdropColor(), Colors.black);
   });
 }

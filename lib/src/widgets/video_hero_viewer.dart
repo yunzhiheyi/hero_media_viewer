@@ -103,7 +103,7 @@ void showVideoHeroOverlay({
     onClose: onClose,
     tapToClose: false,
     showCloseButton: showCloseButton,
-    dimBackdropOnDrag: false,
+    dimBackdropOnDrag: true,
     foregroundBuilder: foregroundBuilder,
     openBuilder:
         thumbProvider == null
@@ -232,7 +232,7 @@ void showMediaHeroOverlay({
     onClose: onClose,
     tapToClose: false,
     showCloseButton: showCloseButton,
-    dimBackdropOnDrag: false,
+    dimBackdropOnDrag: true,
     itemAspectRatios: resolvedRatios,
     foregroundBuilder: _mergedForeground(
       showIndicator: showIndicator && items.length > 1,

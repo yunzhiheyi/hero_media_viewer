@@ -163,7 +163,8 @@ typedef HeroOverlayPageBuilder =
 /// - [itemRects]：每个 index 对应的源矩形，多图 overlay 切页后用对应矩形作为关闭目标。
 /// - [showBackdrop]：是否始终显示黑色背景；图片/视频 overlay 默认 true，页面 overlay 默认 false。
 /// - [dragBackdropOpacity]：拖动过程中背景渐显的强度（仅 [showBackdrop] 为 false 时生效）。
-/// - [dimBackdropOnDrag]：下拖关闭时是否继续用黑色透明层压暗底层页面。
+/// - [dimBackdropOnDrag]：下拖关闭时是否让黑色遮罩随拖动距离淡出；媒体预览
+///   默认开启，呈现微信式“媒体平移、背景渐隐”的反馈。
 ///
 /// 内部会同步向 Navigator 推一个隐藏的哨兵 Route（[_HeroSentinelRoute]），
 /// 用于拦截 Android 物理返回键、Android 14 预测返回手势、iOS 边缘侧滑。
@@ -436,10 +437,9 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
   late int _currentIndex;
 
   // ─── drag state ──────────────────────────────────────────────────────────
-  /// 当前累计的拖动位移与缩放。
+  /// 当前累计的拖动位移。
   double _dragOffsetX = 0.0;
   double _dragOffsetY = 0.0;
-  double _dragScale = 1.0;
 
   /// 关闭起始 opacity / 关闭进度 0~1。
   double _startOpacity = 1.0;
@@ -449,12 +449,6 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
   double _resetStartOpacity = 1.0;
   double _resetStartForegroundOpacity = 1.0;
   double _resetAnimValue = 0.0;
-  bool _dragBackdropHidden = false;
-
-  /// 缩放锚点（手指落点相对当前矩形的归一化坐标）。
-  double _pivotX = 0.5;
-  double _pivotY = 0.5;
-  bool _pivotSet = false;
 
   /// 关闭 / 回位动画的起点矩形快照。
   Rect? _closeStartRect;
@@ -554,24 +548,13 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
   }
 
   // ─── drag handlers ───────────────────────────────────────────────────────
-  /// drag 开始：记录初始全局位置 + 计算缩放锚点（手指落点相对当前矩形的位置）。
+  /// drag 开始：记录初始全局位置；媒体只平移，不跟随手势缩放。
   ///
   /// [isBackground] 表示拖动是在背景层发起的（非内容层）；目前仅记录，无差异化处理。
   void _handleDragStart(DragStartDetails details, bool isBackground) {
     if (_isClosing || _isResetting) return;
     widget.onDragStateChanged?.call(true);
     _lastDragGlobalPosition = details.globalPosition;
-    if (widget.showBackdrop && !widget.dimBackdropOnDrag) {
-      _dragBackdropHidden = true;
-    }
-
-    if (!_pivotSet) {
-      _pivotSet = true;
-      final current = _getCurrentRect();
-      final f = details.globalPosition;
-      _pivotX = (f.dx - current.left) / current.width;
-      _pivotY = (f.dy - current.top) / current.height;
-    }
   }
 
   /// drag 更新：用 globalPosition 差分代替 details.delta，避免下层 widget 吃掉部分位移。
@@ -588,10 +571,6 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
 
     _dragOffsetX += delta.dx;
     _dragOffsetY += delta.dy;
-    _dragScale =
-        _dragOffsetY > 0
-            ? 1.0 - (_dragOffsetY / _screenSize.height).clamp(0.0, 0.5)
-            : 1.0;
     setState(() {});
   }
 
@@ -612,11 +591,6 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
   /// 把三个 drag 事件打包成单个回调（兼容 [builder] 形参）。
   DragCloseCallback _createDragCloseCallback() {
     return (start, update, end, isBackground) {
-      if (isBackground) {
-        _pivotX = 0.5;
-        _pivotY = 0.5;
-        _pivotSet = true;
-      }
       _handleDragStart(start, isBackground);
       _handleDragUpdate(update, isBackground);
       _handleDragEnd(end, isBackground);
@@ -635,14 +609,10 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
     return Rect.lerp(_startRect, _targetRect, t)!;
   }
 
-  /// 当前显示矩形（应用 _dragScale 和拖动位移之后）。
+  /// 当前显示矩形（只应用拖动位移，媒体尺寸保持不变）。
   Rect _getDraggedRect() {
     final base = _getCurrentRect();
-    final w = base.width * _dragScale;
-    final h = base.height * _dragScale;
-    final l = base.left + (base.width - w) * _pivotX + _dragOffsetX;
-    final t = base.top + (base.height - h) * _pivotY + _dragOffsetY;
-    return Rect.fromLTWH(l, t, w, h);
+    return base.shift(Offset(_dragOffsetX, _dragOffsetY));
   }
 
   /// 关闭目标矩形：优先 closeRectBuilder → itemRects[index] → 原 startRect →
@@ -728,11 +698,8 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
         _resetStartForegroundOpacity = 1.0;
         _dragOffsetX = 0;
         _dragOffsetY = 0;
-        _dragScale = 1.0;
-        _dragBackdropHidden = false;
         _lastDragGlobalPosition = null;
       });
-      _pivotSet = false;
     });
     _dragController!.forward();
   }
@@ -757,7 +724,6 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
     }
 
     _startOpacity = 1.0;
-    _dragScale = 1.0;
     _dragOffsetX = 0;
     _dragOffsetY = 0;
 
@@ -862,11 +828,7 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
     // opening / 拖动跟随。
     final t = _expandController!.value;
     final base = Rect.lerp(_startRect, _targetRect, t)!;
-    final w = base.width * _dragScale;
-    final h = base.height * _dragScale;
-    final l = base.left + (base.width - w) * _pivotX + _dragOffsetX;
-    final top = base.top + (base.height - h) * _pivotY + _dragOffsetY;
-    return Rect.fromLTWH(l, top, w, h);
+    return base.shift(Offset(_dragOffsetX, _dragOffsetY));
   }
 
   Widget _buildCloseButton() {
@@ -916,7 +878,6 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
   // ─── opacity helpers ─────────────────────────────────────────────────────
   /// 背景全程透明度（[widget.showBackdrop] 为 true 时使用）。
   double _fullBackdropOpacity() {
-    if (_dragBackdropHidden) return 0.0;
     final t = _expandController!.value;
     if (_isClosing && _closeStartRect != null) {
       return _startOpacity * (1.0 - _closeAnimValue);
@@ -925,7 +886,7 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
       return _resetStartOpacity + (1.0 - _resetStartOpacity) * _resetAnimValue;
     }
     if (_isClosing || t < 1.0) return t;
-    if (_dragOffsetY > 0) {
+    if (_dragOffsetY > 0 && widget.dimBackdropOnDrag) {
       return 1.0 - (_dragOffsetY / _screenSize.height).clamp(0.0, 1.0);
     }
     return 1.0;

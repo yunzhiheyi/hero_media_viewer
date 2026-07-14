@@ -55,7 +55,7 @@ void showImageHeroOverlay({
       fullScreen: fullScreen,
       controller: overlayController,
       onClose: onClose,
-      dimBackdropOnDrag: false,
+      dimBackdropOnDrag: true,
       foregroundBuilder: foregroundBuilder,
       openBuilder:
           (_, __, progress) => AnimatedFitImage(
