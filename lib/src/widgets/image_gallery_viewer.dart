@@ -9,12 +9,13 @@ import 'hero_overlay.dart';
 import 'interactive_gallery_viewer.dart';
 
 /// 多图画廊 hero overlay 的自定义图片构建器。
-typedef GalleryImageBuilder = Widget Function(
-  BuildContext context,
-  ImageProvider imageProvider,
-  int index,
-  bool isFocus,
-);
+typedef GalleryImageBuilder =
+    Widget Function(
+      BuildContext context,
+      ImageProvider imageProvider,
+      int index,
+      bool isFocus,
+    );
 
 /// 打开多图 swipe 画廊 overlay。
 ///
@@ -45,8 +46,9 @@ void showImageGalleryOverlay({
 }) {
   _validateSources(imageSources, initialIndex);
 
-  final providers =
-      imageSources.map((s) => MediaSource.from(s)).toList(growable: false);
+  final providers = imageSources
+      .map((s) => MediaSource.from(s))
+      .toList(growable: false);
   final currentIndex = ValueNotifier<int>(initialIndex);
 
   // 每张图的真实宽高比；后台并发解析，closeBuilder / 翻页 target rect 用到。
@@ -55,9 +57,10 @@ void showImageGalleryOverlay({
   void open(double initialAspectRatio) {
     final screenSize = MediaQuery.sizeOf(context);
     final startSize = startRect.size;
-    final endSize = fullScreen
-        ? screenSize
-        : _containedTargetSize(initialAspectRatio, screenSize);
+    final endSize =
+        fullScreen
+            ? screenSize
+            : _containedTargetSize(initialAspectRatio, screenSize);
 
     showHeroOverlay(
       context: context,
@@ -69,49 +72,59 @@ void showImageGalleryOverlay({
       currentIndexListenable: currentIndex,
       controller: controller,
       onClose: onClose,
+      dimBackdropOnDrag: false,
       itemAspectRatios: resolvedRatios,
       foregroundBuilder: _mergedForeground(
         showIndicator: showIndicator && providers.length > 1,
         count: providers.length,
         userForeground: foregroundBuilder,
       ),
-      openBuilder: (_, index, progress) => AnimatedFitImage(
-        image: providers[index],
-        aspectRatio: resolvedRatios[index] ?? initialAspectRatio,
-        progress: progress,
-        startFit: thumbnailFit,
-        endFit: BoxFit.contain,
-        startContainerSize: startSize,
-        endContainerSize: endSize,
-      ),
-      closeBuilder: (_, index, progress) => AnimatedFitImage(
-        image: providers[index],
-        aspectRatio: resolvedRatios[index] ?? initialAspectRatio,
-        progress: 1.0 - progress,
-        startFit: thumbnailFit,
-        endFit: BoxFit.contain,
-        startContainerSize: startSize,
-        endContainerSize: endSize,
-      ),
-      dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
-        sources: providers,
-        initIndex: initialIndex,
-        enableIndicator: false,
-        showBackground: false,
-        showAppBar: false,
-        tapToDismiss: false,
-        dismissEnabled: false,
-        externalVerticalDragStart: dragHandlers.onStart,
-        externalVerticalDragUpdate: dragHandlers.onUpdate,
-        externalVerticalDragEnd: dragHandlers.onEnd,
-        onPageChanged: (i) {
-          currentIndex.value = i;
-          onPageChanged?.call(i);
-        },
-        itemBuilder: (c, index, isFocus) =>
-            imageBuilder?.call(c, providers[index], index, isFocus) ??
-            Center(child: Image(image: providers[index], fit: BoxFit.contain)),
-      ),
+      openBuilder:
+          (_, index, progress) => AnimatedFitImage(
+            image: providers[index],
+            aspectRatio: resolvedRatios[index] ?? initialAspectRatio,
+            progress: progress,
+            startFit: thumbnailFit,
+            endFit: BoxFit.contain,
+            startContainerSize: startSize,
+            endContainerSize: endSize,
+          ),
+      closeBuilder:
+          (_, index, progress) => AnimatedFitImage(
+            image: providers[index],
+            aspectRatio: resolvedRatios[index] ?? initialAspectRatio,
+            progress: 1.0 - progress,
+            startFit: thumbnailFit,
+            endFit: BoxFit.contain,
+            startContainerSize: startSize,
+            endContainerSize: endSize,
+          ),
+      dragBuilder:
+          (ctx, dragHandlers) => InteractiveGalleryViewer(
+            sources: providers,
+            initIndex: initialIndex,
+            enableIndicator: false,
+            showBackground: false,
+            showAppBar: false,
+            tapToDismiss: false,
+            dismissEnabled: false,
+            externalVerticalDragStart: dragHandlers.onStart,
+            externalVerticalDragUpdate: dragHandlers.onUpdate,
+            externalVerticalDragEnd: dragHandlers.onEnd,
+            onPageChanged: (i) {
+              currentIndex.value = i;
+              onPageChanged?.call(i);
+            },
+            itemBuilder:
+                (c, index, isFocus) =>
+                    imageBuilder?.call(c, providers[index], index, isFocus) ??
+                    Center(
+                      child: Image(
+                        image: providers[index],
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+          ),
     );
   }
 
@@ -121,26 +134,32 @@ void showImageGalleryOverlay({
     // 后台解析其余图片
     for (var i = 0; i < providers.length; i++) {
       if (i == initialIndex) continue;
-      unawaited(resolveImageAspectRatio(providers[i]).then((r) {
-        if (r != null) resolvedRatios[i] = r;
-      }));
+      unawaited(
+        resolveImageAspectRatio(providers[i]).then((r) {
+          if (r != null) resolvedRatios[i] = r;
+        }),
+      );
     }
     return;
   }
 
-  unawaited(resolveImageAspectRatio(providers[initialIndex]).then((resolved) {
-    if (!context.mounted) return;
-    final initialRatio = resolved ?? rectAspectRatio(startRect);
-    resolvedRatios[initialIndex] = initialRatio;
-    // 后台解析其余图片
-    for (var i = 0; i < providers.length; i++) {
-      if (i == initialIndex) continue;
-      unawaited(resolveImageAspectRatio(providers[i]).then((r) {
-        if (r != null) resolvedRatios[i] = r;
-      }));
-    }
-    open(initialRatio);
-  }));
+  unawaited(
+    resolveImageAspectRatio(providers[initialIndex]).then((resolved) {
+      if (!context.mounted) return;
+      final initialRatio = resolved ?? rectAspectRatio(startRect);
+      resolvedRatios[initialIndex] = initialRatio;
+      // 后台解析其余图片
+      for (var i = 0; i < providers.length; i++) {
+        if (i == initialIndex) continue;
+        unawaited(
+          resolveImageAspectRatio(providers[i]).then((r) {
+            if (r != null) resolvedRatios[i] = r;
+          }),
+        );
+      }
+      open(initialRatio);
+    }),
+  );
 }
 
 /// 非 fullScreen 模式下，按宽高比居中放大并 fit 进屏幕的目标尺寸。
@@ -168,11 +187,11 @@ HeroOverlayForegroundBuilder? _mergedForeground({
     return (c, i) => HeroOverlayPageIndicator(count: count, index: i);
   }
   return (c, i) => Stack(
-        children: [
-          HeroOverlayPageIndicator(count: count, index: i),
-          userForeground(c, i),
-        ],
-      );
+    children: [
+      HeroOverlayPageIndicator(count: count, index: i),
+      userForeground(c, i),
+    ],
+  );
 }
 
 void _validateSources(List<dynamic> sources, int initialIndex) {
@@ -184,11 +203,6 @@ void _validateSources(List<dynamic> sources, int initialIndex) {
     );
   }
   if (initialIndex < 0 || initialIndex >= sources.length) {
-    throw RangeError.range(
-      initialIndex,
-      0,
-      sources.length - 1,
-      'initialIndex',
-    );
+    throw RangeError.range(initialIndex, 0, sources.length - 1, 'initialIndex');
   }
 }

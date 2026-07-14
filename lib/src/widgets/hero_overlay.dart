@@ -163,6 +163,7 @@ typedef HeroOverlayPageBuilder =
 /// - [itemRects]：每个 index 对应的源矩形，多图 overlay 切页后用对应矩形作为关闭目标。
 /// - [showBackdrop]：是否始终显示黑色背景；图片/视频 overlay 默认 true，页面 overlay 默认 false。
 /// - [dragBackdropOpacity]：拖动过程中背景渐显的强度（仅 [showBackdrop] 为 false 时生效）。
+/// - [dimBackdropOnDrag]：下拖关闭时是否继续用黑色透明层压暗底层页面。
 ///
 /// 内部会同步向 Navigator 推一个隐藏的哨兵 Route（[_HeroSentinelRoute]），
 /// 用于拦截 Android 物理返回键、Android 14 预测返回手势、iOS 边缘侧滑。
@@ -198,6 +199,7 @@ void showHeroOverlay({
   bool showCloseButton = true,
   bool showBackdrop = true,
   double dragBackdropOpacity = 0.0,
+  bool dimBackdropOnDrag = true,
 }) {
   final overlayController = controller ?? HeroOverlayController();
   final navigator = Navigator.maybeOf(context);
@@ -243,6 +245,7 @@ void showHeroOverlay({
           showCloseButton: showCloseButton,
           showBackdrop: showBackdrop,
           dragBackdropOpacity: dragBackdropOpacity,
+          dimBackdropOnDrag: dimBackdropOnDrag,
           onClose: cleanup,
           controller: overlayController,
           builder: builder,
@@ -300,6 +303,7 @@ void showHeroPageOverlay({
   bool dragToClose = true,
   bool showBackdrop = false,
   double dragBackdropOpacity = 0.0,
+  bool dimBackdropOnDrag = true,
   Duration openDuration = const Duration(milliseconds: 360),
   Duration closeDuration = const Duration(milliseconds: 300),
   Duration resetDuration = const Duration(milliseconds: 260),
@@ -319,6 +323,7 @@ void showHeroPageOverlay({
     dragToClose: dragToClose,
     showBackdrop: showBackdrop,
     dragBackdropOpacity: dragBackdropOpacity,
+    dimBackdropOnDrag: dimBackdropOnDrag,
     openDuration: openDuration,
     closeDuration: closeDuration,
     resetDuration: resetDuration,
@@ -375,6 +380,7 @@ class _HeroOverlayView extends StatefulWidget {
     this.showCloseButton = true,
     this.showBackdrop = true,
     this.dragBackdropOpacity = 0.0,
+    this.dimBackdropOnDrag = true,
   });
 
   final Rect startRect;
@@ -405,6 +411,7 @@ class _HeroOverlayView extends StatefulWidget {
   final bool showCloseButton;
   final bool showBackdrop;
   final double dragBackdropOpacity;
+  final bool dimBackdropOnDrag;
 
   @override
   State<_HeroOverlayView> createState() => _HeroOverlayViewState();
@@ -442,6 +449,7 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
   double _resetStartOpacity = 1.0;
   double _resetStartForegroundOpacity = 1.0;
   double _resetAnimValue = 0.0;
+  bool _dragBackdropHidden = false;
 
   /// 缩放锚点（手指落点相对当前矩形的归一化坐标）。
   double _pivotX = 0.5;
@@ -553,6 +561,9 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
     if (_isClosing || _isResetting) return;
     widget.onDragStateChanged?.call(true);
     _lastDragGlobalPosition = details.globalPosition;
+    if (widget.showBackdrop && !widget.dimBackdropOnDrag) {
+      _dragBackdropHidden = true;
+    }
 
     if (!_pivotSet) {
       _pivotSet = true;
@@ -718,6 +729,7 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
         _dragOffsetX = 0;
         _dragOffsetY = 0;
         _dragScale = 1.0;
+        _dragBackdropHidden = false;
         _lastDragGlobalPosition = null;
       });
       _pivotSet = false;
@@ -802,7 +814,10 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
               widget.showBackdrop
                   ? _fullBackdropOpacity()
                   : _dragOnlyBackdropOpacity();
-          return Container(color: Colors.black.withValues(alpha: opacity));
+          return Container(
+            key: const ValueKey('hero-overlay-backdrop'),
+            color: Colors.black.withValues(alpha: opacity),
+          );
         },
       ),
     );
@@ -901,6 +916,7 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
   // ─── opacity helpers ─────────────────────────────────────────────────────
   /// 背景全程透明度（[widget.showBackdrop] 为 true 时使用）。
   double _fullBackdropOpacity() {
+    if (_dragBackdropHidden) return 0.0;
     final t = _expandController!.value;
     if (_isClosing && _closeStartRect != null) {
       return _startOpacity * (1.0 - _closeAnimValue);

@@ -9,11 +9,12 @@ import 'hero_overlay.dart';
 import 'interactive_gallery_viewer.dart';
 
 /// 单图 hero overlay 自定义构建器（替换默认 `Image(fit: contain)`）。
-typedef SingleImageBuilder = Widget Function(
-  BuildContext context,
-  ImageProvider imageProvider,
-  bool isFocus,
-);
+typedef SingleImageBuilder =
+    Widget Function(
+      BuildContext context,
+      ImageProvider imageProvider,
+      bool isFocus,
+    );
 
 /// 打开单图 hero overlay。
 ///
@@ -42,9 +43,10 @@ void showImageHeroOverlay({
   void open(double resolvedAspectRatio) {
     final screenSize = MediaQuery.sizeOf(context);
     final startSize = startRect.size;
-    final endSize = fullScreen
-        ? screenSize
-        : _containedTargetSize(resolvedAspectRatio, screenSize);
+    final endSize =
+        fullScreen
+            ? screenSize
+            : _containedTargetSize(resolvedAspectRatio, screenSize);
 
     showHeroOverlay(
       context: context,
@@ -53,40 +55,47 @@ void showImageHeroOverlay({
       fullScreen: fullScreen,
       controller: overlayController,
       onClose: onClose,
+      dimBackdropOnDrag: false,
       foregroundBuilder: foregroundBuilder,
-      openBuilder: (_, __, progress) => AnimatedFitImage(
-        image: imageProvider,
-        aspectRatio: resolvedAspectRatio,
-        progress: progress,
-        startFit: thumbnailFit,
-        endFit: BoxFit.contain,
-        startContainerSize: startSize,
-        endContainerSize: endSize,
-      ),
-      closeBuilder: (_, __, progress) => AnimatedFitImage(
-        image: imageProvider,
-        aspectRatio: resolvedAspectRatio,
-        progress: 1.0 - progress,
-        startFit: thumbnailFit,
-        endFit: BoxFit.contain,
-        startContainerSize: startSize,
-        endContainerSize: endSize,
-      ),
-      dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
-        sources: [imageProvider],
-        initIndex: 0,
-        isSingle: true,
-        showBackground: false,
-        showAppBar: false,
-        tapToDismiss: false,
-        dismissEnabled: false,
-        externalVerticalDragStart: dragHandlers.onStart,
-        externalVerticalDragUpdate: dragHandlers.onUpdate,
-        externalVerticalDragEnd: dragHandlers.onEnd,
-        itemBuilder: (c, _, isFocus) =>
-            imageBuilder?.call(c, imageProvider, isFocus) ??
-            Center(child: Image(image: imageProvider, fit: BoxFit.contain)),
-      ),
+      openBuilder:
+          (_, __, progress) => AnimatedFitImage(
+            image: imageProvider,
+            aspectRatio: resolvedAspectRatio,
+            progress: progress,
+            startFit: thumbnailFit,
+            endFit: BoxFit.contain,
+            startContainerSize: startSize,
+            endContainerSize: endSize,
+          ),
+      closeBuilder:
+          (_, __, progress) => AnimatedFitImage(
+            image: imageProvider,
+            aspectRatio: resolvedAspectRatio,
+            progress: 1.0 - progress,
+            startFit: thumbnailFit,
+            endFit: BoxFit.contain,
+            startContainerSize: startSize,
+            endContainerSize: endSize,
+          ),
+      dragBuilder:
+          (ctx, dragHandlers) => InteractiveGalleryViewer(
+            sources: [imageProvider],
+            initIndex: 0,
+            isSingle: true,
+            showBackground: false,
+            showAppBar: false,
+            tapToDismiss: false,
+            dismissEnabled: false,
+            externalVerticalDragStart: dragHandlers.onStart,
+            externalVerticalDragUpdate: dragHandlers.onUpdate,
+            externalVerticalDragEnd: dragHandlers.onEnd,
+            itemBuilder:
+                (c, _, isFocus) =>
+                    imageBuilder?.call(c, imageProvider, isFocus) ??
+                    Center(
+                      child: Image(image: imageProvider, fit: BoxFit.contain),
+                    ),
+          ),
     );
   }
 
@@ -95,10 +104,12 @@ void showImageHeroOverlay({
     return;
   }
 
-  unawaited(resolveImageAspectRatio(imageProvider).then((resolved) {
-    if (!context.mounted) return;
-    open(resolved ?? rectAspectRatio(startRect));
-  }));
+  unawaited(
+    resolveImageAspectRatio(imageProvider).then((resolved) {
+      if (!context.mounted) return;
+      open(resolved ?? rectAspectRatio(startRect));
+    }),
+  );
 }
 
 /// 非 fullScreen 模式下，按宽高比居中放大并 fit 进屏幕的目标尺寸。

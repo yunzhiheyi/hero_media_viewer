@@ -67,4 +67,67 @@ void main() {
 
     expect(find.byIcon(Icons.close), findsNothing);
   });
+
+  testWidgets('Hero overlay can keep the page undimmed while dragging', (
+    tester,
+  ) async {
+    DragStartDetails? dragStart;
+    DragUpdateDetails? dragUpdate;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder:
+              (context) => Center(
+                child: ElevatedButton(
+                  onPressed:
+                      () => showHeroOverlay(
+                        context: context,
+                        startRect: const Rect.fromLTWH(100, 100, 80, 80),
+                        showCloseButton: false,
+                        dimBackdropOnDrag: false,
+                        builder:
+                            (_, onDragClose) => GestureDetector(
+                              onVerticalDragStart: (details) {
+                                dragStart = details;
+                              },
+                              onVerticalDragUpdate: (details) {
+                                dragUpdate = details;
+                              },
+                              onVerticalDragEnd: (details) {
+                                onDragClose?.call(
+                                  dragStart!,
+                                  dragUpdate!,
+                                  details,
+                                  false,
+                                );
+                              },
+                              child: const ColoredBox(color: Colors.black),
+                            ),
+                      ),
+                  child: const Text('open'),
+                ),
+              ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    Color backdropColor() {
+      final backdrop = tester.widget<Container>(
+        find.byKey(const ValueKey('hero-overlay-backdrop')),
+      );
+      return backdrop.color!;
+    }
+
+    expect(backdropColor(), Colors.black);
+
+    await tester.drag(find.byType(ColoredBox).last, const Offset(0, 40));
+    await tester.pump();
+
+    expect(backdropColor(), Colors.black.withValues(alpha: 0));
+  });
 }
