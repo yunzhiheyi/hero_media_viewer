@@ -496,6 +496,9 @@ class _HeroVideoPlayerState extends State<HeroVideoPlayer> {
       child: Stack(
         fit: StackFit.expand,
         children: [
+          // 横向视频在全屏 Hero 内只占中间的 contain 区域；底板必须不透明，
+          // 否则下拖时外层遮罩渐隐会从上下留白透出底层页面。
+          const ColoredBox(color: Colors.black),
           if (widget.thumbnail != null)
             Positioned.fill(
               child: Image(image: widget.thumbnail!, fit: BoxFit.contain),

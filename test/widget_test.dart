@@ -137,4 +137,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(backdropColor(), Colors.black);
   });
+
+  testWidgets('Hero video keeps an opaque black surface while loading', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: SizedBox.expand(
+          child: HeroVideoPlayer(videoSource: 'assets://missing-video.mp4'),
+        ),
+      ),
+    );
+
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is ColoredBox && widget.color == Colors.black,
+      ),
+      findsOneWidget,
+    );
+  });
 }
