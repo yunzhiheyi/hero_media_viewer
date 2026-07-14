@@ -68,6 +68,54 @@ void main() {
     expect(find.byIcon(Icons.close), findsNothing);
   });
 
+  testWidgets('Hero source stays hidden until the close flight has finished', (
+    tester,
+  ) async {
+    final controller = HeroOverlayController();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder:
+              (context) => HeroOverlaySource(
+                controller: controller,
+                child: ElevatedButton(
+                  key: const ValueKey('source-media'),
+                  onPressed:
+                      () => showHeroOverlay(
+                        context: context,
+                        controller: controller,
+                        startRect: const Rect.fromLTWH(100, 100, 80, 80),
+                        showCloseButton: false,
+                        builder:
+                            (_, _) => const ColoredBox(color: Colors.black),
+                      ),
+                  child: const Text('open'),
+                ),
+              ),
+        ),
+      ),
+    );
+
+    Finder sourceVisibility() => find.ancestor(
+      of: find.byKey(const ValueKey('source-media')),
+      matching: find.byType(Visibility),
+    );
+
+    expect(tester.widget<Visibility>(sourceVisibility()).visible, isTrue);
+
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    expect(tester.widget<Visibility>(sourceVisibility()).visible, isFalse);
+
+    controller.close();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(tester.widget<Visibility>(sourceVisibility()).visible, isFalse);
+
+    await tester.pump(const Duration(milliseconds: 310));
+    expect(tester.widget<Visibility>(sourceVisibility()).visible, isTrue);
+  });
+
   testWidgets('Hero overlay drags media smaller and fades backdrop', (
     tester,
   ) async {
@@ -138,7 +186,7 @@ void main() {
     expect(backdropColor(), Colors.black);
   });
 
-  testWidgets('Hero video keeps an opaque black surface while loading', (
+  testWidgets('Hero video keeps a transparent surface while loading', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -153,7 +201,7 @@ void main() {
       find.byWidgetPredicate(
         (widget) => widget is ColoredBox && widget.color == Colors.black,
       ),
-      findsOneWidget,
+      findsNothing,
     );
   });
 }

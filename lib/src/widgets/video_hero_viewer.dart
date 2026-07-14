@@ -332,7 +332,8 @@ HeroOverlayForegroundBuilder? _mergedForeground({
 /// 把一个 [MediaItem] 渲染成 hero overlay 打开 / 关闭动画用的渐变 fit 预览。
 ///
 /// [progress] 0 表示 [startFit]（缩略图样式），1 表示 contain（overlay 样式）。
-/// 图片项用 [MediaItem.imageProvider]，视频项用 [MediaItem.thumbnail]；都没有时给一块黑。
+/// 图片项用 [MediaItem.imageProvider]，视频项用 [MediaItem.thumbnail]；没有预览图时
+/// 保持透明，让外层 Hero backdrop 统一处理背景。
 Widget _mediaPreview(
   MediaItem item,
   BoxFit startFit,
@@ -344,7 +345,7 @@ Widget _mediaPreview(
 ) {
   final provider =
       item.type == MediaType.image ? item.imageProvider : item.thumbnail;
-  if (provider == null) return const ColoredBox(color: Colors.black);
+  if (provider == null) return const SizedBox.expand();
   return AnimatedFitImage(
     image: provider,
     aspectRatio: aspectRatio,
@@ -496,9 +497,6 @@ class _HeroVideoPlayerState extends State<HeroVideoPlayer> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // 横向视频在全屏 Hero 内只占中间的 contain 区域；底板必须不透明，
-          // 否则下拖时外层遮罩渐隐会从上下留白透出底层页面。
-          const ColoredBox(color: Colors.black),
           if (widget.thumbnail != null)
             Positioned.fill(
               child: Image(image: widget.thumbnail!, fit: BoxFit.contain),
