@@ -38,4 +38,33 @@ void main() {
       expect(find.text('1 / 2'), findsOneWidget);
     },
   );
+
+  testWidgets('Hero overlay can hide its default close button', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder:
+              (context) => Center(
+                child: ElevatedButton(
+                  onPressed:
+                      () => showHeroOverlay(
+                        context: context,
+                        startRect: const Rect.fromLTWH(100, 100, 80, 80),
+                        showCloseButton: false,
+                        builder:
+                            (_, _) => const ColoredBox(color: Colors.black),
+                      ),
+                  child: const Text('open'),
+                ),
+              ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(find.byIcon(Icons.close), findsNothing);
+  });
 }

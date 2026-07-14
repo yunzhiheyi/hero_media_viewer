@@ -18,37 +18,41 @@ import 'interactive_gallery_viewer.dart';
 // ============================================================================
 
 /// 视频 item 完全自定义构建器（替换默认 [HeroVideoPlayer]）。
-typedef HeroVideoItemBuilder = Widget Function(
-  BuildContext context,
-  String videoSource,
-  ImageProvider? thumbnail,
-  bool isFocus,
-);
+typedef HeroVideoItemBuilder =
+    Widget Function(
+      BuildContext context,
+      String videoSource,
+      ImageProvider? thumbnail,
+      bool isFocus,
+    );
 
 /// 混合画廊中的视频构建器，多 [index] 参数。
-typedef HeroVideoIndexedItemBuilder = Widget Function(
-  BuildContext context,
-  String videoSource,
-  ImageProvider? thumbnail,
-  int index,
-  bool isFocus,
-);
+typedef HeroVideoIndexedItemBuilder =
+    Widget Function(
+      BuildContext context,
+      String videoSource,
+      ImageProvider? thumbnail,
+      int index,
+      bool isFocus,
+    );
 
 /// 混合画廊中的图片构建器。
-typedef HeroImageIndexedItemBuilder = Widget Function(
-  BuildContext context,
-  ImageProvider imageProvider,
-  int index,
-  bool isFocus,
-);
+typedef HeroImageIndexedItemBuilder =
+    Widget Function(
+      BuildContext context,
+      ImageProvider imageProvider,
+      int index,
+      bool isFocus,
+    );
 
 /// [HeroVideoPlayer] 控件层槽位（替换默认的中央播放/暂停按钮）。
-typedef HeroVideoControlsBuilder = Widget Function(
-  BuildContext context,
-  VideoPlayerController controller,
-  bool isPlaying,
-  VoidCallback togglePlayback,
-);
+typedef HeroVideoControlsBuilder =
+    Widget Function(
+      BuildContext context,
+      VideoPlayerController controller,
+      bool isPlaying,
+      VoidCallback togglePlayback,
+    );
 
 /// [HeroVideoPlayer] 加载态/错误态槽位。
 typedef HeroVideoStateBuilder = Widget Function(BuildContext context);
@@ -75,21 +79,20 @@ void showVideoHeroOverlay({
   HeroOverlayController? controller,
   BoxFit thumbnailFit = BoxFit.cover,
   Alignment thumbnailAlignment = Alignment.center,
+  bool showCloseButton = true,
   HeroVideoItemBuilder? videoBuilder,
   HeroVideoControlsBuilder? videoControlsBuilder,
   HeroVideoStateBuilder? videoLoadingBuilder,
   HeroVideoStateBuilder? videoErrorBuilder,
   HeroOverlayForegroundBuilder? foregroundBuilder,
 }) {
-  final thumbProvider =
-      thumbnail == null ? null : MediaSource.from(thumbnail);
+  final thumbProvider = thumbnail == null ? null : MediaSource.from(thumbnail);
 
   final videoAspect = aspectRatio ?? rectAspectRatio(startRect);
   final screenSize = MediaQuery.sizeOf(context);
   final startSize = startRect.size;
-  final endSize = fullScreen
-      ? screenSize
-      : _containedTargetSize(videoAspect, screenSize);
+  final endSize =
+      fullScreen ? screenSize : _containedTargetSize(videoAspect, screenSize);
 
   showHeroOverlay(
     context: context,
@@ -99,10 +102,12 @@ void showVideoHeroOverlay({
     controller: controller,
     onClose: onClose,
     tapToClose: false,
+    showCloseButton: showCloseButton,
     foregroundBuilder: foregroundBuilder,
-    openBuilder: thumbProvider == null
-        ? null
-        : (_, __, progress) => AnimatedFitImage(
+    openBuilder:
+        thumbProvider == null
+            ? null
+            : (_, __, progress) => AnimatedFitImage(
               image: thumbProvider,
               aspectRatio: videoAspect,
               progress: progress,
@@ -111,9 +116,10 @@ void showVideoHeroOverlay({
               startContainerSize: startSize,
               endContainerSize: endSize,
             ),
-    closeBuilder: thumbProvider == null
-        ? null
-        : (_, __, progress) => AnimatedFitImage(
+    closeBuilder:
+        thumbProvider == null
+            ? null
+            : (_, __, progress) => AnimatedFitImage(
               image: thumbProvider,
               aspectRatio: videoAspect,
               progress: 1.0 - progress,
@@ -122,27 +128,29 @@ void showVideoHeroOverlay({
               startContainerSize: startSize,
               endContainerSize: endSize,
             ),
-    dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
-      sources: [videoSource],
-      initIndex: 0,
-      isSingle: true,
-      showBackground: false,
-      showAppBar: false,
-      tapToDismiss: false,
-      dismissEnabled: false,
-      externalVerticalDragStart: dragHandlers.onStart,
-      externalVerticalDragUpdate: dragHandlers.onUpdate,
-      externalVerticalDragEnd: dragHandlers.onEnd,
-      itemBuilder: (c, _, isFocus) =>
-          videoBuilder?.call(c, videoSource, thumbProvider, isFocus) ??
-          HeroVideoPlayer(
-            videoSource: videoSource,
-            thumbnail: thumbProvider,
-            controlsBuilder: videoControlsBuilder,
-            loadingBuilder: videoLoadingBuilder,
-            errorBuilder: videoErrorBuilder,
-          ),
-    ),
+    dragBuilder:
+        (ctx, dragHandlers) => InteractiveGalleryViewer(
+          sources: [videoSource],
+          initIndex: 0,
+          isSingle: true,
+          showBackground: false,
+          showAppBar: false,
+          tapToDismiss: false,
+          dismissEnabled: false,
+          externalVerticalDragStart: dragHandlers.onStart,
+          externalVerticalDragUpdate: dragHandlers.onUpdate,
+          externalVerticalDragEnd: dragHandlers.onEnd,
+          itemBuilder:
+              (c, _, isFocus) =>
+                  videoBuilder?.call(c, videoSource, thumbProvider, isFocus) ??
+                  HeroVideoPlayer(
+                    videoSource: videoSource,
+                    thumbnail: thumbProvider,
+                    controlsBuilder: videoControlsBuilder,
+                    loadingBuilder: videoLoadingBuilder,
+                    errorBuilder: videoErrorBuilder,
+                  ),
+        ),
   );
 }
 
@@ -165,6 +173,7 @@ void showMediaHeroOverlay({
   HeroOverlayController? controller,
   BoxFit thumbnailFit = BoxFit.cover,
   Alignment thumbnailAlignment = Alignment.center,
+  bool showCloseButton = true,
   HeroImageIndexedItemBuilder? imageBuilder,
   HeroVideoIndexedItemBuilder? videoBuilder,
   HeroVideoControlsBuilder? videoControlsBuilder,
@@ -183,7 +192,8 @@ void showMediaHeroOverlay({
 
   // 每个 item 的宽高比；图片类型后台异步解析，视频类型用 item.aspectRatio 或兜底。
   final resolvedRatios = <int, double>{};
-  final fallbackRatio = aspectRatio ??
+  final fallbackRatio =
+      aspectRatio ??
       items[initialIndex].aspectRatio ??
       rectAspectRatio(startRect);
 
@@ -193,21 +203,21 @@ void showMediaHeroOverlay({
       resolvedRatios[i] = item.aspectRatio!;
       continue;
     }
-    final provider = item.type == MediaType.image
-        ? item.imageProvider
-        : item.thumbnail;
+    final provider =
+        item.type == MediaType.image ? item.imageProvider : item.thumbnail;
     if (provider != null) {
-      unawaited(resolveImageAspectRatio(provider).then((r) {
-        if (r != null) resolvedRatios[i] = r;
-      }));
+      unawaited(
+        resolveImageAspectRatio(provider).then((r) {
+          if (r != null) resolvedRatios[i] = r;
+        }),
+      );
     }
   }
 
   final screenSize = MediaQuery.sizeOf(context);
   final mixedStartSize = startRect.size;
-  final mixedEndSize = fullScreen
-      ? screenSize
-      : _containedTargetSize(fallbackRatio, screenSize);
+  final mixedEndSize =
+      fullScreen ? screenSize : _containedTargetSize(fallbackRatio, screenSize);
 
   showHeroOverlay(
     context: context,
@@ -220,72 +230,78 @@ void showMediaHeroOverlay({
     controller: controller,
     onClose: onClose,
     tapToClose: false,
+    showCloseButton: showCloseButton,
     itemAspectRatios: resolvedRatios,
     foregroundBuilder: _mergedForeground(
       showIndicator: showIndicator && items.length > 1,
       count: items.length,
       userForeground: foregroundBuilder,
     ),
-    openBuilder: (_, index, progress) => _mediaPreview(
-      items[index],
-      thumbnailFit,
-      thumbnailAlignment,
-      progress,
-      resolvedRatios[index] ?? fallbackRatio,
-      mixedStartSize,
-      mixedEndSize,
-    ),
-    closeBuilder: (_, index, progress) => _mediaPreview(
-      items[index],
-      thumbnailFit,
-      thumbnailAlignment,
-      1.0 - progress,
-      resolvedRatios[index] ?? fallbackRatio,
-      mixedStartSize,
-      mixedEndSize,
-    ),
-    dragBuilder: (ctx, dragHandlers) => InteractiveGalleryViewer(
-      sources: items,
-      initIndex: initialIndex,
-      enableIndicator: false,
-      showBackground: false,
-      showAppBar: false,
-      tapToDismiss: false,
-      dismissEnabled: false,
-      externalVerticalDragStart: dragHandlers.onStart,
-      externalVerticalDragUpdate: dragHandlers.onUpdate,
-      externalVerticalDragEnd: dragHandlers.onEnd,
-      onPageChanged: (i) {
-        currentIndex.value = i;
-        onPageChanged?.call(i);
-      },
-      itemBuilder: (c, index, isFocus) {
-        final item = items[index];
-        return switch (item.type) {
-          MediaType.image => imageBuilder?.call(
-                c,
-                _requireImage(item),
-                index,
-                isFocus,
-              ) ??
-              Center(child: Image(image: _requireImage(item), fit: BoxFit.contain)),
-          MediaType.video => videoBuilder?.call(
-                c,
-                _requireVideoPath(item),
-                item.thumbnail,
-                index,
-                isFocus,
-              ) ??
-              HeroVideoPlayer(
-                videoSource: _requireVideoPath(item),
-                thumbnail: item.thumbnail,
-                controlsBuilder: videoControlsBuilder,
-                loadingBuilder: videoLoadingBuilder,
-                errorBuilder: videoErrorBuilder,
-              ),
-        };
-      },
-    ),
+    openBuilder:
+        (_, index, progress) => _mediaPreview(
+          items[index],
+          thumbnailFit,
+          thumbnailAlignment,
+          progress,
+          resolvedRatios[index] ?? fallbackRatio,
+          mixedStartSize,
+          mixedEndSize,
+        ),
+    closeBuilder:
+        (_, index, progress) => _mediaPreview(
+          items[index],
+          thumbnailFit,
+          thumbnailAlignment,
+          1.0 - progress,
+          resolvedRatios[index] ?? fallbackRatio,
+          mixedStartSize,
+          mixedEndSize,
+        ),
+    dragBuilder:
+        (ctx, dragHandlers) => InteractiveGalleryViewer(
+          sources: items,
+          initIndex: initialIndex,
+          enableIndicator: false,
+          showBackground: false,
+          showAppBar: false,
+          tapToDismiss: false,
+          dismissEnabled: false,
+          externalVerticalDragStart: dragHandlers.onStart,
+          externalVerticalDragUpdate: dragHandlers.onUpdate,
+          externalVerticalDragEnd: dragHandlers.onEnd,
+          onPageChanged: (i) {
+            currentIndex.value = i;
+            onPageChanged?.call(i);
+          },
+          itemBuilder: (c, index, isFocus) {
+            final item = items[index];
+            return switch (item.type) {
+              MediaType.image =>
+                imageBuilder?.call(c, _requireImage(item), index, isFocus) ??
+                    Center(
+                      child: Image(
+                        image: _requireImage(item),
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+              MediaType.video =>
+                videoBuilder?.call(
+                      c,
+                      _requireVideoPath(item),
+                      item.thumbnail,
+                      index,
+                      isFocus,
+                    ) ??
+                    HeroVideoPlayer(
+                      videoSource: _requireVideoPath(item),
+                      thumbnail: item.thumbnail,
+                      controlsBuilder: videoControlsBuilder,
+                      loadingBuilder: videoLoadingBuilder,
+                      errorBuilder: videoErrorBuilder,
+                    ),
+            };
+          },
+        ),
   );
 }
 
@@ -304,11 +320,11 @@ HeroOverlayForegroundBuilder? _mergedForeground({
     return (c, i) => HeroOverlayPageIndicator(count: count, index: i);
   }
   return (c, i) => Stack(
-        children: [
-          HeroOverlayPageIndicator(count: count, index: i),
-          userForeground(c, i),
-        ],
-      );
+    children: [
+      HeroOverlayPageIndicator(count: count, index: i),
+      userForeground(c, i),
+    ],
+  );
 }
 
 /// 把一个 [MediaItem] 渲染成 hero overlay 打开 / 关闭动画用的渐变 fit 预览。
@@ -505,37 +521,32 @@ class _HeroVideoPlayerState extends State<HeroVideoPlayer> {
     );
   }
 
-  Widget _defaultLoading() => const Center(
-        child: CircularProgressIndicator(color: Colors.white),
-      );
+  Widget _defaultLoading() =>
+      const Center(child: CircularProgressIndicator(color: Colors.white));
 
   Widget _defaultError() => const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, color: Colors.white, size: 48),
-            SizedBox(height: 8),
-            Text('视频加载失败', style: TextStyle(color: Colors.white)),
-          ],
-        ),
-      );
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.error_outline, color: Colors.white, size: 48),
+        SizedBox(height: 8),
+        Text('视频加载失败', style: TextStyle(color: Colors.white)),
+      ],
+    ),
+  );
 
   Widget _defaultControls() => Center(
-        child: AnimatedOpacity(
-          opacity: _isPlaying ? 0.0 : 1.0,
-          duration: const Duration(milliseconds: 200),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.black45,
-              borderRadius: BorderRadius.circular(28),
-            ),
-            child: const Icon(
-              Icons.play_arrow,
-              color: Colors.white,
-              size: 28,
-            ),
-          ),
+    child: AnimatedOpacity(
+      opacity: _isPlaying ? 0.0 : 1.0,
+      duration: const Duration(milliseconds: 200),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.black45,
+          borderRadius: BorderRadius.circular(28),
         ),
-      );
+        child: const Icon(Icons.play_arrow, color: Colors.white, size: 28),
+      ),
+    ),
+  );
 }

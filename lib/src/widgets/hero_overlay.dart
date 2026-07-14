@@ -55,12 +55,13 @@ class HeroOverlayController {
 }
 
 /// 拖动关闭事件三元组回调签名（start / update / end 一次性提供）。
-typedef DragCloseCallback = void Function(
-  DragStartDetails start,
-  DragUpdateDetails update,
-  DragEndDetails end,
-  bool isBackground,
-);
+typedef DragCloseCallback =
+    void Function(
+      DragStartDetails start,
+      DragUpdateDetails update,
+      DragEndDetails end,
+      bool isBackground,
+    );
 
 /// 由 overlay 透传给内容 widget 的三个 drag 回调。
 ///
@@ -125,34 +126,27 @@ class HeroOverlayPageIndicator extends StatelessWidget {
 }
 
 /// 关闭回位动画时叠在 overlay 之上的"缩略图预览"构建器。
-typedef HeroOverlayCloseBuilder = Widget Function(
-  BuildContext context,
-  int index,
-  double progress,
-);
+typedef HeroOverlayCloseBuilder =
+    Widget Function(BuildContext context, int index, double progress);
 
 /// 打开动画时叠在 overlay 之上的"缩略图预览"构建器。
-typedef HeroOverlayOpenBuilder = Widget Function(
-  BuildContext context,
-  int index,
-  double progress,
-);
+typedef HeroOverlayOpenBuilder =
+    Widget Function(BuildContext context, int index, double progress);
 
 /// 长驻在 overlay 之上的浮层（页码指示器、保存按钮、字幕等）。
-typedef HeroOverlayForegroundBuilder = Widget Function(
-  BuildContext context,
-  int index,
-);
+typedef HeroOverlayForegroundBuilder =
+    Widget Function(BuildContext context, int index);
 
 /// 根据当前 index 返回目标矩形（如关闭时飞回到哪个 thumbnail）。
 typedef HeroOverlayTargetRectBuilder = Rect Function(int index);
 
 /// 页面 hero overlay 的内容构建器签名。
-typedef HeroOverlayPageBuilder = Widget Function(
-  BuildContext context,
-  HeroOverlayController controller,
-  HeroOverlayDragHandlers dragHandlers,
-);
+typedef HeroOverlayPageBuilder =
+    Widget Function(
+      BuildContext context,
+      HeroOverlayController controller,
+      HeroOverlayDragHandlers dragHandlers,
+    );
 
 // ============================================================================
 // Public APIs
@@ -175,9 +169,10 @@ typedef HeroOverlayPageBuilder = Widget Function(
 void showHeroOverlay({
   required BuildContext context,
   required Rect startRect,
-  Widget Function(BuildContext context, DragCloseCallback? onDragClose)? builder,
+  Widget Function(BuildContext context, DragCloseCallback? onDragClose)?
+  builder,
   Widget Function(BuildContext context, HeroOverlayDragHandlers dragHandlers)?
-      dragBuilder,
+  dragBuilder,
   HeroOverlayOpenBuilder? openBuilder,
   HeroOverlayCloseBuilder? closeBuilder,
   HeroOverlayForegroundBuilder? foregroundBuilder,
@@ -200,6 +195,7 @@ void showHeroOverlay({
   Map<int, double>? itemAspectRatios,
   bool tapToClose = true,
   bool dragToClose = true,
+  bool showCloseButton = true,
   bool showBackdrop = true,
   double dragBackdropOpacity = 0.0,
 }) {
@@ -232,35 +228,37 @@ void showHeroOverlay({
   }
 
   overlayEntry = OverlayEntry(
-    builder: (_) => _HeroOverlayView(
-      startRect: startRect,
-      aspectRatio: aspectRatio,
-      fullScreen: fullScreen,
-      itemRects: itemRects,
-      initialIndex: initialIndex,
-      currentIndexListenable: currentIndexListenable,
-      onIndexChanged: onIndexChanged,
-      itemAspectRatios: itemAspectRatios,
-      tapToClose: tapToClose,
-      dragToClose: dragToClose,
-      showBackdrop: showBackdrop,
-      dragBackdropOpacity: dragBackdropOpacity,
-      onClose: cleanup,
-      controller: overlayController,
-      builder: builder,
-      dragBuilder: dragBuilder,
-      openBuilder: openBuilder,
-      closeBuilder: closeBuilder,
-      foregroundBuilder: foregroundBuilder,
-      closeRectBuilder: closeRectBuilder,
-      sharedElementTargetRectBuilder: sharedElementTargetRectBuilder,
-      targetRect: targetRect,
-      maintainChildSize: maintainChildSize,
-      openDuration: openDuration,
-      closeDuration: closeDuration,
-      resetDuration: resetDuration,
-      onDragStateChanged: onDragStateChanged,
-    ),
+    builder:
+        (_) => _HeroOverlayView(
+          startRect: startRect,
+          aspectRatio: aspectRatio,
+          fullScreen: fullScreen,
+          itemRects: itemRects,
+          initialIndex: initialIndex,
+          currentIndexListenable: currentIndexListenable,
+          onIndexChanged: onIndexChanged,
+          itemAspectRatios: itemAspectRatios,
+          tapToClose: tapToClose,
+          dragToClose: dragToClose,
+          showCloseButton: showCloseButton,
+          showBackdrop: showBackdrop,
+          dragBackdropOpacity: dragBackdropOpacity,
+          onClose: cleanup,
+          controller: overlayController,
+          builder: builder,
+          dragBuilder: dragBuilder,
+          openBuilder: openBuilder,
+          closeBuilder: closeBuilder,
+          foregroundBuilder: foregroundBuilder,
+          closeRectBuilder: closeRectBuilder,
+          sharedElementTargetRectBuilder: sharedElementTargetRectBuilder,
+          targetRect: targetRect,
+          maintainChildSize: maintainChildSize,
+          openDuration: openDuration,
+          closeDuration: closeDuration,
+          resetDuration: resetDuration,
+          onDragStateChanged: onDragStateChanged,
+        ),
   );
 
   overlayController
@@ -328,8 +326,8 @@ void showHeroPageOverlay({
     closeBuilder: closeBuilder,
     closeRectBuilder: closeRectBuilder,
     sharedElementTargetRectBuilder: sharedElementTargetRectBuilder,
-    dragBuilder: (ctx, dragHandlers) =>
-        builder(ctx, overlayController, dragHandlers),
+    dragBuilder:
+        (ctx, dragHandlers) => builder(ctx, overlayController, dragHandlers),
   );
 }
 
@@ -374,6 +372,7 @@ class _HeroOverlayView extends StatefulWidget {
     this.itemAspectRatios,
     this.tapToClose = true,
     this.dragToClose = true,
+    this.showCloseButton = true,
     this.showBackdrop = true,
     this.dragBackdropOpacity = 0.0,
   });
@@ -403,6 +402,7 @@ class _HeroOverlayView extends StatefulWidget {
   final Map<int, double>? itemAspectRatios;
   final bool tapToClose;
   final bool dragToClose;
+  final bool showCloseButton;
   final bool showBackdrop;
   final double dragBackdropOpacity;
 
@@ -509,10 +509,14 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
   }
 
   void _initAnimations() {
-    _expandController =
-        AnimationController(duration: widget.openDuration, vsync: this);
-    _dragController =
-        AnimationController(duration: widget.closeDuration, vsync: this);
+    _expandController = AnimationController(
+      duration: widget.openDuration,
+      vsync: this,
+    );
+    _dragController = AnimationController(
+      duration: widget.closeDuration,
+      vsync: this,
+    );
     _expandController!.forward();
   }
 
@@ -532,7 +536,9 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
       if (rect != null) _startRect = rect;
 
       final newAspect = widget.itemAspectRatios?[index];
-      if (newAspect != null && !widget.fullScreen && widget.targetRect == null) {
+      if (newAspect != null &&
+          !widget.fullScreen &&
+          widget.targetRect == null) {
         _calculateTargetRect(newAspect);
       }
     });
@@ -571,9 +577,10 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
 
     _dragOffsetX += delta.dx;
     _dragOffsetY += delta.dy;
-    _dragScale = _dragOffsetY > 0
-        ? 1.0 - (_dragOffsetY / _screenSize.height).clamp(0.0, 0.5)
-        : 1.0;
+    _dragScale =
+        _dragOffsetY > 0
+            ? 1.0 - (_dragOffsetY / _screenSize.height).clamp(0.0, 0.5)
+            : 1.0;
     setState(() {});
   }
 
@@ -606,10 +613,10 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
   }
 
   HeroOverlayDragHandlers _createDragHandlers() => HeroOverlayDragHandlers(
-        onStart: (d) => _handleDragStart(d, false),
-        onUpdate: (d) => _handleDragUpdate(d, false),
-        onEnd: (d) => _handleDragEnd(d, false),
-      );
+    onStart: (d) => _handleDragStart(d, false),
+    onUpdate: (d) => _handleDragUpdate(d, false),
+    onEnd: (d) => _handleDragEnd(d, false),
+  );
 
   // ─── rect helpers ────────────────────────────────────────────────────────
   Rect _getCurrentRect() {
@@ -657,14 +664,17 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
     _isClosing = true;
 
     _closeStartRect = _getDraggedRect();
-    _startOpacity =
-        1.0 - (_dragOffsetY / _screenSize.height).clamp(0.0, 1.0);
+    _startOpacity = 1.0 - (_dragOffsetY / _screenSize.height).clamp(0.0, 1.0);
 
     _dragController?.dispose();
-    _dragController =
-        AnimationController(duration: widget.closeDuration, vsync: this);
-    final curve =
-        CurvedAnimation(parent: _dragController!, curve: Curves.fastOutSlowIn);
+    _dragController = AnimationController(
+      duration: widget.closeDuration,
+      vsync: this,
+    );
+    final curve = CurvedAnimation(
+      parent: _dragController!,
+      curve: Curves.fastOutSlowIn,
+    );
 
     curve.addListener(() => setState(() => _closeAnimValue = curve.value));
     curve.addStatusListener((status) {
@@ -684,10 +694,14 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
     _resetStartForegroundOpacity = _foregroundOpacityFromDragOffset();
 
     _dragController?.dispose();
-    _dragController =
-        AnimationController(duration: widget.resetDuration, vsync: this);
-    final anim =
-        CurvedAnimation(parent: _dragController!, curve: Curves.fastOutSlowIn);
+    _dragController = AnimationController(
+      duration: widget.resetDuration,
+      vsync: this,
+    );
+    final anim = CurvedAnimation(
+      parent: _dragController!,
+      curve: Curves.fastOutSlowIn,
+    );
 
     anim.addListener(() => setState(() => _resetAnimValue = anim.value));
     anim.addStatusListener((status) {
@@ -736,10 +750,14 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
     _dragOffsetY = 0;
 
     _dragController?.dispose();
-    _dragController =
-        AnimationController(duration: widget.closeDuration, vsync: this);
-    final curve =
-        CurvedAnimation(parent: _dragController!, curve: Curves.fastOutSlowIn);
+    _dragController = AnimationController(
+      duration: widget.closeDuration,
+      vsync: this,
+    );
+    final curve = CurvedAnimation(
+      parent: _dragController!,
+      curve: Curves.fastOutSlowIn,
+    );
     curve.addListener(() => setState(() => _closeAnimValue = curve.value));
     curve.addStatusListener((status) {
       if (status == AnimationStatus.completed) widget.onClose();
@@ -761,7 +779,7 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
           if (widget.showBackdrop || widget.dragBackdropOpacity > 0)
             _buildBackdrop(),
           _buildContent(),
-          _buildCloseButton(),
+          if (widget.showCloseButton) _buildCloseButton(),
           if (!_isClosing && widget.foregroundBuilder != null)
             _buildForeground(),
         ],
@@ -771,9 +789,8 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
 
   Widget _buildBackdrop() {
     return GestureDetector(
-      onTap: widget.tapToClose && !_isClosing && _dragOffsetY < 10
-          ? _close
-          : null,
+      onTap:
+          widget.tapToClose && !_isClosing && _dragOffsetY < 10 ? _close : null,
       onPanStart: widget.dragToClose ? (d) => _handleDragStart(d, true) : null,
       onPanUpdate:
           widget.dragToClose ? (d) => _handleDragUpdate(d, true) : null,
@@ -781,9 +798,10 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
       child: AnimatedBuilder(
         animation: Listenable.merge([_expandController, _dragController]),
         builder: (_, __) {
-          final opacity = widget.showBackdrop
-              ? _fullBackdropOpacity()
-              : _dragOnlyBackdropOpacity();
+          final opacity =
+              widget.showBackdrop
+                  ? _fullBackdropOpacity()
+                  : _dragOnlyBackdropOpacity();
           return Container(color: Colors.black.withValues(alpha: opacity));
         },
       ),
@@ -799,7 +817,8 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
       },
       child: ClipRRect(
         borderRadius: BorderRadius.zero,
-        child: widget.dragBuilder?.call(context, _createDragHandlers()) ??
+        child:
+            widget.dragBuilder?.call(context, _createDragHandlers()) ??
             widget.builder?.call(context, _createDragCloseCallback()) ??
             const SizedBox.shrink(),
       ),
@@ -814,8 +833,7 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
     if (_isClosing && _closeStartRect != null) {
       final closeTarget = _getCloseTargetRect();
       final targetAspect = closeTarget.width / closeTarget.height;
-      final currentAspect =
-          _closeStartRect!.width / _closeStartRect!.height;
+      final currentAspect = _closeStartRect!.width / _closeStartRect!.height;
 
       var start = _closeStartRect!;
       // 宽高比差异较大时，把起点按目标比例校正，避免动画过程明显拉伸。
@@ -868,14 +886,15 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
   Widget _buildForeground() {
     return AnimatedBuilder(
       animation: Listenable.merge([_expandController, _dragController]),
-      builder: (_, __) => Positioned.fill(
-        child: Opacity(
-          opacity: _foregroundOpacity(),
-          child: Stack(
-            children: [widget.foregroundBuilder!(context, _currentIndex)],
+      builder:
+          (_, __) => Positioned.fill(
+            child: Opacity(
+              opacity: _foregroundOpacity(),
+              child: Stack(
+                children: [widget.foregroundBuilder!(context, _currentIndex)],
+              ),
+            ),
           ),
-        ),
-      ),
     );
   }
 
@@ -887,8 +906,7 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
       return _startOpacity * (1.0 - _closeAnimValue);
     }
     if (_isResetting) {
-      return _resetStartOpacity +
-          (1.0 - _resetStartOpacity) * _resetAnimValue;
+      return _resetStartOpacity + (1.0 - _resetStartOpacity) * _resetAnimValue;
     }
     if (_isClosing || t < 1.0) return t;
     if (_dragOffsetY > 0) {
@@ -914,8 +932,7 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
 
   /// 浮层（foreground）整体透明度：随展开进度淡入、随拖动淡出。
   double _foregroundOpacity() {
-    final expand =
-        ((_expandController?.value ?? 0.0) * 2).clamp(0.0, 1.0);
+    final expand = ((_expandController?.value ?? 0.0) * 2).clamp(0.0, 1.0);
     if (_isResetting) {
       return (_resetStartForegroundOpacity +
               (1.0 - _resetStartForegroundOpacity) * _resetAnimValue)
@@ -928,8 +945,10 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
   double _foregroundOpacityFromDragOffset() {
     const fadeDistance = 120.0;
     if (_dragOffsetY <= 0) return 1.0;
-    return (1.0 - (_dragOffsetY / fadeDistance).clamp(0.0, 1.0))
-        .clamp(0.0, 1.0);
+    return (1.0 - (_dragOffsetY / fadeDistance).clamp(0.0, 1.0)).clamp(
+      0.0,
+      1.0,
+    );
   }
 
   // ─── content wrappers ────────────────────────────────────────────────────
@@ -951,17 +970,15 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
 
     final overlayChild = GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onTap: widget.tapToClose && !_isClosing && _dragOffsetY < 10
-          ? _close
-          : null,
+      onTap:
+          widget.tapToClose && !_isClosing && _dragOffsetY < 10 ? _close : null,
       onVerticalDragStart:
           enableOuterDrag ? (d) => _handleDragStart(d, false) : null,
       onVerticalDragUpdate:
           enableOuterDrag ? (d) => _handleDragUpdate(d, false) : null,
       onVerticalDragEnd:
           enableOuterDrag ? (d) => _handleDragEnd(d, false) : null,
-      child:
-          usesSharedElement ? child : _buildOverlayContent(context, child),
+      child: usesSharedElement ? child : _buildOverlayContent(context, child),
     );
 
     if (!widget.maintainChildSize) {
@@ -1157,9 +1174,7 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
     // 关闭：closeBuilder 完全盖在 child 之上。
     // outer=0：closeBuilder 渲染 contain，与 child 一致，切入无感；
     // outer=1：closeBuilder 渲染缩略图 fit，匹配 startRect。
-    if (_isClosing &&
-        _closeStartRect != null &&
-        widget.closeBuilder != null) {
+    if (_isClosing && _closeStartRect != null && widget.closeBuilder != null) {
       final progress = _closeAnimValue.clamp(0.0, 1.0);
       return Stack(
         fit: StackFit.expand,
@@ -1216,14 +1231,14 @@ abstract class HeroOverlayViewState {
 ///    entry 也能被清掉。
 class _HeroSentinelRoute<T> extends PageRouteBuilder<T> {
   _HeroSentinelRoute({required this.onPopRequest, required this.onRemoved})
-      : super(
-          opaque: false,
-          barrierDismissible: false,
-          transitionDuration: Duration.zero,
-          reverseTransitionDuration: Duration.zero,
-          maintainState: true,
-          pageBuilder: (_, _, _) => const SizedBox.shrink(),
-        );
+    : super(
+        opaque: false,
+        barrierDismissible: false,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+        maintainState: true,
+        pageBuilder: (_, _, _) => const SizedBox.shrink(),
+      );
 
   final VoidCallback onPopRequest;
   final VoidCallback onRemoved;
