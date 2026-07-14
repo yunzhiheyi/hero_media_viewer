@@ -68,7 +68,7 @@ void main() {
     expect(find.byIcon(Icons.close), findsNothing);
   });
 
-  testWidgets('Hero overlay drags media without shrinking and fades backdrop', (
+  testWidgets('Hero overlay drags media smaller and fades backdrop', (
     tester,
   ) async {
     late HeroOverlayDragHandlers dragHandlers;
@@ -130,7 +130,8 @@ void main() {
     final draggedRect = tester.getRect(
       find.byKey(const ValueKey('drag-media')),
     );
-    expect(draggedRect.size, initialRect.size);
+    expect(draggedRect.width, lessThan(initialRect.width));
+    expect(draggedRect.height, lessThan(initialRect.height));
 
     dragHandlers.onEnd(DragEndDetails());
     await tester.pumpAndSettle();
