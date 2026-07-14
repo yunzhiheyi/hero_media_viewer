@@ -54,41 +54,6 @@ class HeroOverlayController {
   }
 }
 
-/// 将触发预览的源 widget 与 [HeroOverlayController] 绑定。
-///
-/// Overlay 展开到关闭回位的整个期间，源 widget 保持占位但不参与绘制；只有
-/// OverlayEntry 已移除后才恢复。这样关闭末帧不会同时出现“飞回中的预览”和
-/// “已经显示的源缩略图”，避免两层媒体短暂重叠。
-class HeroOverlaySource extends StatelessWidget {
-  const HeroOverlaySource({
-    super.key,
-    required this.controller,
-    required this.child,
-  });
-
-  final HeroOverlayController controller;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: controller.sourceHidden,
-      child: child,
-      builder: (context, hidden, child) {
-        return Visibility(
-          visible: !hidden,
-          maintainAnimation: true,
-          maintainInteractivity: false,
-          maintainSemantics: false,
-          maintainSize: true,
-          maintainState: true,
-          child: child!,
-        );
-      },
-    );
-  }
-}
-
 /// 拖动关闭事件三元组回调签名（start / update / end 一次性提供）。
 typedef DragCloseCallback =
     void Function(
