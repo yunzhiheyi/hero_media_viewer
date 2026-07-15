@@ -68,6 +68,51 @@ void main() {
     expect(find.byIcon(Icons.close), findsNothing);
   });
 
+  testWidgets('Media gallery can keep its backdrop opaque while dragging', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder:
+              (context) => Center(
+                child: ElevatedButton(
+                  onPressed:
+                      () => showMediaHeroOverlay(
+                        context: context,
+                        items: [
+                          MediaItem.video(
+                            id: 'video',
+                            videoPath: 'assets://missing-video.mp4',
+                          ),
+                        ],
+                        startRect: const Rect.fromLTWH(100, 100, 80, 80),
+                        dimBackdropOnDrag: false,
+                      ),
+                  child: const Text('open gallery'),
+                ),
+              ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open gallery'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    final gallery = find.byType(InteractiveGalleryViewer<MediaItem>);
+    final gesture = await tester.startGesture(tester.getCenter(gallery));
+    await gesture.moveBy(const Offset(0, 100));
+    await tester.pump();
+
+    final backdrop = tester.widget<Container>(
+      find.byKey(const ValueKey('hero-overlay-backdrop')),
+    );
+    expect(backdrop.color, Colors.black);
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 50));
+  });
+
   testWidgets('Hero overlay drags media smaller and fades backdrop', (
     tester,
   ) async {
