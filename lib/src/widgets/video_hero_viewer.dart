@@ -160,6 +160,8 @@ void showVideoHeroOverlay({
 /// [items] 不能为空，[initialIndex] 在 [0, items.length) 范围内。
 ///
 /// 自定义槽位与单视频版本一致，外加 [imageBuilder] 用于自定义图片渲染。
+/// [closeRectBuilder] 在关闭时按当前页实时读取缩略图位置，适用于会在预览期间
+/// 改变折叠顺序的媒体堆叠组件。
 void showMediaHeroOverlay({
   required BuildContext context,
   required List<MediaItem> items,
@@ -167,6 +169,7 @@ void showMediaHeroOverlay({
   int initialIndex = 0,
   bool showIndicator = true,
   Map<int, Rect>? itemRects,
+  HeroOverlayTargetRectBuilder? closeRectBuilder,
   void Function(int index)? onPageChanged,
   VoidCallback? onClose,
   double? aspectRatio,
@@ -226,6 +229,7 @@ void showMediaHeroOverlay({
     aspectRatio: fallbackRatio,
     fullScreen: fullScreen,
     itemRects: itemRects,
+    closeRectBuilder: closeRectBuilder,
     initialIndex: initialIndex,
     currentIndexListenable: currentIndex,
     controller: controller,
