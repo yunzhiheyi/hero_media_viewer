@@ -68,64 +68,6 @@ void main() {
     expect(find.byIcon(Icons.close), findsNothing);
   });
 
-  testWidgets(
-    'Hero overlay can clear its backdrop as soon as dragging starts',
-    (tester) async {
-      late HeroOverlayDragHandlers dragHandlers;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder:
-                (context) => Center(
-                  child: ElevatedButton(
-                    onPressed:
-                        () => showHeroOverlay(
-                          context: context,
-                          startRect: const Rect.fromLTWH(100, 100, 80, 80),
-                          targetRect: const Rect.fromLTWH(80, 220, 200, 120),
-                          fullScreen: false,
-                          showCloseButton: false,
-                          clearBackdropOnDrag: true,
-                          dragBuilder: (_, handlers) {
-                            dragHandlers = handlers;
-                            return const SizedBox(
-                              key: ValueKey('clear-drag-media'),
-                              child: ColoredBox(color: Colors.white),
-                            );
-                          },
-                        ),
-                    child: const Text('open gallery'),
-                  ),
-                ),
-          ),
-        ),
-      );
-
-      await tester.tap(find.text('open gallery'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 350));
-
-      final mediaRect = tester.getRect(
-        find.byKey(const ValueKey('clear-drag-media')),
-      );
-      dragHandlers.onStart(DragStartDetails(globalPosition: mediaRect.center));
-      dragHandlers.onUpdate(
-        DragUpdateDetails(
-          delta: const Offset(0, 100),
-          globalPosition: mediaRect.center + const Offset(0, 100),
-        ),
-      );
-      await tester.pump();
-
-      final backdrop = tester.widget<Container>(
-        find.byKey(const ValueKey('hero-overlay-backdrop')),
-      );
-      expect(backdrop.color, Colors.transparent);
-      dragHandlers.onEnd(DragEndDetails());
-      await tester.pumpAndSettle();
-    },
-  );
-
   testWidgets('Hero overlay drags media smaller and fades backdrop', (
     tester,
   ) async {

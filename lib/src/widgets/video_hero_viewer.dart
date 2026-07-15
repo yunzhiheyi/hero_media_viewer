@@ -175,8 +175,6 @@ void showMediaHeroOverlay({
   BoxFit thumbnailFit = BoxFit.cover,
   Alignment thumbnailAlignment = Alignment.center,
   bool showCloseButton = true,
-  bool dimBackdropOnDrag = true,
-  bool clearBackdropOnDrag = false,
   HeroImageIndexedItemBuilder? imageBuilder,
   HeroVideoIndexedItemBuilder? videoBuilder,
   HeroVideoControlsBuilder? videoControlsBuilder,
@@ -234,8 +232,7 @@ void showMediaHeroOverlay({
     onClose: onClose,
     tapToClose: false,
     showCloseButton: showCloseButton,
-    dimBackdropOnDrag: dimBackdropOnDrag,
-    clearBackdropOnDrag: clearBackdropOnDrag,
+    dimBackdropOnDrag: true,
     itemAspectRatios: resolvedRatios,
     foregroundBuilder: _mergedForeground(
       showIndicator: showIndicator && items.length > 1,
