@@ -165,6 +165,8 @@ typedef HeroOverlayPageBuilder =
 /// - [dragBackdropOpacity]：拖动过程中背景渐显的强度（仅 [showBackdrop] 为 false 时生效）。
 /// - [dimBackdropOnDrag]：下拖关闭时是否让黑色遮罩随拖动距离淡出；媒体预览
 ///   默认开启，呈现微信式“媒体平移、背景渐隐”的反馈。
+/// - [clearBackdropOnDrag]：下拖一开始就移除背景遮罩；适用于系统选片页，
+///   避免源页面在拖动过程中继续被黑色半透明层覆盖。
 ///
 /// 内部会同步向 Navigator 推一个隐藏的哨兵 Route（[_HeroSentinelRoute]），
 /// 用于拦截 Android 物理返回键、Android 14 预测返回手势、iOS 边缘侧滑。
@@ -201,6 +203,7 @@ void showHeroOverlay({
   bool showBackdrop = true,
   double dragBackdropOpacity = 0.0,
   bool dimBackdropOnDrag = true,
+  bool clearBackdropOnDrag = false,
 }) {
   final overlayController = controller ?? HeroOverlayController();
   final navigator = Navigator.maybeOf(context);
@@ -247,6 +250,7 @@ void showHeroOverlay({
           showBackdrop: showBackdrop,
           dragBackdropOpacity: dragBackdropOpacity,
           dimBackdropOnDrag: dimBackdropOnDrag,
+          clearBackdropOnDrag: clearBackdropOnDrag,
           onClose: cleanup,
           controller: overlayController,
           builder: builder,
@@ -382,6 +386,7 @@ class _HeroOverlayView extends StatefulWidget {
     this.showBackdrop = true,
     this.dragBackdropOpacity = 0.0,
     this.dimBackdropOnDrag = true,
+    this.clearBackdropOnDrag = false,
   });
 
   final Rect startRect;
@@ -413,6 +418,7 @@ class _HeroOverlayView extends StatefulWidget {
   final bool showBackdrop;
   final double dragBackdropOpacity;
   final bool dimBackdropOnDrag;
+  final bool clearBackdropOnDrag;
 
   @override
   State<_HeroOverlayView> createState() => _HeroOverlayViewState();
@@ -920,6 +926,7 @@ class _HeroOverlayViewState extends State<_HeroOverlayView>
       return _resetStartOpacity + (1.0 - _resetStartOpacity) * _resetAnimValue;
     }
     if (_isClosing || t < 1.0) return t;
+    if (_dragOffsetY > 0 && widget.clearBackdropOnDrag) return 0.0;
     if (_dragOffsetY > 0 && widget.dimBackdropOnDrag) {
       return 1.0 - (_dragOffsetY / _screenSize.height).clamp(0.0, 1.0);
     }
