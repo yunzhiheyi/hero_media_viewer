@@ -13,8 +13,12 @@ typedef IndexedFocusedWidgetBuilder = Widget Function(
 /// rest 状态阈值：scale ≤ 1.01 视为没放大，开启翻页 / 下滑关闭。
 const double _kRestScaleEpsilon = 1.01;
 
-/// 过拖触发下滑关闭的最小丢失像素（避免微小抖动误触）。
-const double _kOverPanThreshold = 0.5;
+/// zoom 状态下把"贴边继续下拖"转成关闭手势所需的累计位移（像素）。
+/// 必须足够大：平移与关闭的意图区分靠它，太小会让正常平移误触关闭。
+const double _kOverPanStartDistance = 12.0;
+
+/// 判定矩阵 translation 是否贴住边界的容差（像素）。
+const double _kBoundaryEpsilon = 2.0;
 
 /// 缩放 + 翻页 + 下滑关闭一体化的画廊容器。
 ///
@@ -125,10 +129,12 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
   late Offset _doubleTapLocalPosition;
 
   /// zoom 状态下"过拖（over-pan）转下滑关闭"的状态机：
-  /// 记录最近一次 pointer 位置和 matrix translation，对比每帧的 finger 位移 vs.
-  /// matrix 位移，差值就是被边界吃掉的"丢失"距离，超阈值则转交给外部 drag。
+  /// 只有图片顶边已贴住视口顶部（矩阵被 clamp、无法再向下平移）时，继续
+  /// 向下的拖动才累计为过拖；累计超过 [_kOverPanStartDistance] 才转交外部
+  /// drag。不再用"指针位移 vs 矩阵位移差"推断——pointer 事件与矩阵更新
+  /// 存在一帧时差，快速平移时会得出虚假丢失量而误触关闭。
   Offset? _lastPointerPosition;
-  double _lastTranslationY = 0;
+  double _overPanAccumY = 0;
   bool _externalDragActive = false;
 
   /// rest 状态下 1 指 dismiss drag 是否已激活；2 指落下时用它来取消已触发的拖动。
@@ -159,8 +165,10 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
             _doubleTapAnimation?.value ?? Matrix4.identity();
       })
       ..addStatusListener((status) {
-        if (status == AnimationStatus.completed && !_enableDismiss) {
-          setState(() => _enableDismiss = true);
+        // 双击缩放动画结束后按"当前 scale"重算手势模式：放大后必须保持
+        // 下滑关闭禁用，之前无条件重新启用会让放大态单指拖动误触关闭。
+        if (status == AnimationStatus.completed) {
+          _evalScaleMode();
         }
       });
     currentIndex = widget.initIndex;
@@ -202,51 +210,55 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
   }
 
   // ─── over-pan detection (zoom 状态) ──────────────────────────────────────
-  /// zoom 状态下单指下拖处理：
-  /// matrix 因为边界 clamp 而吃不下的 Y 位移，转交给外部 drag handler 用作下滑关闭。
+  /// zoom 状态下单指下拖处理。
+  ///
+  /// 边界判定是显式的：直接读矩阵 translation，只有图片顶边贴住视口顶部
+  /// （ty ≥ -ε，说明矩阵已被 clamp、无法再向下平移）且拖动以纵向为主时，
+  /// 向下的位移才累计为过拖；累计超过阈值后才转交外部 drag 触发关闭回位。
+  /// 未贴边的拖动一律视为平移，绝不触发关闭。
   void _handleSingleFingerMove(PointerMoveEvent event) {
     final last = _lastPointerPosition;
-    if (last == null) {
-      _lastPointerPosition = event.position;
-      return;
-    }
-    final pointerDeltaY = event.position.dy - last.dy;
     _lastPointerPosition = event.position;
+    if (last == null) return;
+    final pointerDeltaY = event.position.dy - last.dy;
 
     if (_isAtRest(_currentScale)) {
-      // rest 状态由 _buildItem 的 VerticalDrag 处理，这里仅同步基准。
-      _lastTranslationY = _transformController.value.getTranslation().y;
+      // rest 状态由 _buildItem 的 VerticalDrag 处理。
       return;
     }
 
     final translationY = _transformController.value.getTranslation().y;
-    final translationDeltaY = translationY - _lastTranslationY;
-    _lastTranslationY = translationY;
+    final atTopBoundary = translationY >= -_kBoundaryEpsilon;
+    final mostlyVertical = pointerDeltaY.abs() > event.delta.dx.abs();
 
-    // 用户下拖（>0）但 matrix 没跟上（被顶部边界 clamp），多出的就是丢失量。
-    final lostDY = pointerDeltaY - translationDeltaY;
-
-    if (pointerDeltaY > 0 && lostDY > _kOverPanThreshold) {
-      if (!_externalDragActive) {
+    if (pointerDeltaY > 0 && atTopBoundary && mostlyVertical) {
+      _overPanAccumY += pointerDeltaY;
+      if (!_externalDragActive && _overPanAccumY >= _kOverPanStartDistance) {
         _externalDragActive = true;
         widget.externalVerticalDragStart?.call(DragStartDetails(
           globalPosition: event.position,
           localPosition: event.localPosition,
         ));
       }
-      widget.externalVerticalDragUpdate?.call(DragUpdateDetails(
-        delta: Offset(0, lostDY),
-        primaryDelta: lostDY,
-        globalPosition: event.position,
-        localPosition: event.localPosition,
-      ));
-    } else if (_externalDragActive && pointerDeltaY < 0) {
-      // 反向拖动 → 取消已开始的外部 drag（图片重新进入可平移区域）。
-      _cancelOverPanDrag();
+      if (_externalDragActive) {
+        widget.externalVerticalDragUpdate?.call(DragUpdateDetails(
+          delta: Offset(0, pointerDeltaY),
+          primaryDelta: pointerDeltaY,
+          globalPosition: event.position,
+          localPosition: event.localPosition,
+        ));
+      }
+    } else {
+      _overPanAccumY = 0;
+      if (_externalDragActive && pointerDeltaY < 0) {
+        // 反向拖动 → 取消已开始的外部 drag（图片重新进入可平移区域）。
+        _cancelOverPanDrag();
+      }
     }
   }
 
   void _cancelOverPanDrag() {
+    _overPanAccumY = 0;
     if (!_externalDragActive) return;
     widget.externalVerticalDragEnd?.call(
       DragEndDetails(velocity: Velocity.zero),
@@ -408,7 +420,7 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
     currentTouchPointNum++;
     if (currentTouchPointNum == 1) {
       _lastPointerPosition = event.position;
-      _lastTranslationY = _transformController.value.getTranslation().y;
+      _overPanAccumY = 0;
       return;
     }
     // 第 2 指落下：取消 1 指阶段已吃下的过拖 / dismiss drag，让 pinch 干净接管。
@@ -432,8 +444,13 @@ class _InteractiveGalleryViewerState extends State<InteractiveGalleryViewer>
     if (currentTouchPointNum == 0) {
       _lastPointerPosition = null;
       _evalScaleMode();
-    } else if (currentTouchPointNum <= 1 && _isAtRest(_currentScale)) {
-      setState(() => _enablePageView = true);
+    } else if (currentTouchPointNum <= 1) {
+      // pinch 抬起一指回到单指：必须重置基准位置——残留的是另一根手指的
+      // 坐标，下一帧会算出虚假的大位移。
+      _lastPointerPosition = null;
+      if (_isAtRest(_currentScale)) {
+        setState(() => _enablePageView = true);
+      }
     }
   }
 
